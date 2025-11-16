@@ -20,12 +20,15 @@ enum BinaryOp {
     LE_OP,
     GR_OP,
     GREQ_OP,
-    LEEQ_OP
+    LEEQ_OP,
+    AND_op,
+    ORR_op
 };
 
 // Clase abstracta Exp
 class Exp {
 public:
+    virtual string  type() =0;
     virtual string  accept(Visitor* visitor) = 0;
     virtual ~Exp() = 0;  // Destructor puro → clase abstracta
     static string binopToChar(BinaryOp op);  // Conversión operador → string
@@ -33,10 +36,13 @@ public:
 
 // Expresión binaria
 class BinaryExp : public Exp {
+
 public:
+    string exp_type="BinaryExp";
     Exp* left;
     Exp* right;
     BinaryOp op;
+    string type(){return exp_type;}
     string accept(Visitor* visitor);
     BinaryExp(Exp* l, Exp* r, BinaryOp op);
     ~BinaryExp();
@@ -44,48 +50,78 @@ public:
 };
 class strExp:public Exp{
 public:
+
+    string exp_type="strExp";
+
     string value;
     strExp(const string& v);
     ~strExp();
     string accept(Visitor* visitor);
+    string type(){return exp_type;}
+
 
 };
 
 
 class arrExp:public Exp{
 public:
+    string exp_type="arrExp";
+
     string tipo;
     list<Exp*> elements;
     arrExp(){};
     ~arrExp(){};
     string accept(Visitor* visitor);
+    string type(){return exp_type;}
+
 
 };
 
 class accesExp:public Exp{
 public:
+    string exp_type="accesExp";
+
     string variable;
     list<Exp*> indexes;
     accesExp(){};
     ~accesExp(){};
     string accept(Visitor* visitor);
+    string type(){return exp_type;}
+
 };
 // Expresión numérica
 class NumberExp : public Exp {
 public:
+    string exp_type="NumberExp";
     int value;
     string accept(Visitor* visitor);
     NumberExp(int v);
     ~NumberExp();
+    string type(){return exp_type;}
+
+};
+class BoolExp : public Exp {
+public:
+    string exp_type="BoolExp";
+    int value;
+    string accept(Visitor* visitor);
+    BoolExp(int v){value=bool(v);}
+    ~BoolExp(){};
+    string type(){return exp_type;}
+
 };
 
 // Expresión numérica
 class IdExp : public Exp {
 public:
+    string exp_type="IdExp";
+
     string value;
     string accept(Visitor* visitor);
     IdExp(string v);
     ~IdExp();
+    string type(){return exp_type;}
+
 };
 
 
@@ -189,11 +225,14 @@ public:
 
 class FcallExp: public Exp {
 public:
+    string exp_type="IdExp";
+
     string nombre;
     vector<Exp*> argumentos;
     string accept(Visitor* visitor);
     FcallExp(){};
     ~FcallExp(){};
+    string type(){return exp_type;}
 };
 
 
@@ -219,7 +258,5 @@ public:
     ~Program(){};
     string accept(Visitor* visitor);
 };
-
-
 
 #endif // AST_H

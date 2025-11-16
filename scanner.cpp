@@ -82,10 +82,18 @@ Token* Scanner::nextToken() {
         return new Token(Token::STRING,input,first,++current-first-1);
     }
     // Operadores
-    else if (strchr("+/-*();=<,{}:!&[]", c)) {
+    else if (strchr("+/-*();=<,{}:!&[]>|", c)) {
         switch (c) {
             case '!': token = new Token(Token::EXCLAM,  c); break;
-            case '&': token = new Token(Token::AMP,  c); break;
+            case '|': token = new Token(Token::OR,  c); break;
+            case '&':
+                if(input[current+1]=='&'){
+                    current++;
+                    token = new Token(Token::AND, input, first, current + 1 - first);
+                }else
+                    token = new Token(Token::AMP, c);
+
+                break;
 
             case '<':
                 if(input[current+1]=='='){

@@ -56,6 +56,9 @@ ostream& operator<<(ostream& outs, const Token& tok) {
         case Token::LET:    outs << "TOKEN(LET, \""    << tok.text << "\")"; break;
         case Token::RBRACE:    outs << "TOKEN(RBRACE, \""    << tok.text << "\")"; break;
         case Token::LBRACE:    outs << "TOKEN(LBRACE, \""    << tok.text << "\")"; break;
+        case Token::GR:    outs << "TOKEN(GR, \""    << tok.text << "\")"; break;
+        case Token::GREQ:    outs << "TOKEN(GREQ, \""    << tok.text << "\")"; break;
+        case Token::LEEQ:    outs << "TOKEN(LEEQ, \""    << tok.text << "\")"; break;
 
 
         case Token::FN:    outs << "TOKEN(FUN, \""    << tok.text << "\")"; break;

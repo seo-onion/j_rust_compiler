@@ -43,6 +43,7 @@ public:
     virtual string visit(arrExp* arr) =0;
     virtual string visit(accesExp* exp) = 0;
     virtual string visit(AssignPStm* stm) =0;
+    virtual string visit(BoolExp* stm) =0;
 
 };
 class Typechecker : public Visitor {
@@ -61,6 +62,7 @@ public:
     string visit(AssignStm* stm) override;
     string visit(WhileStm* stm) override;
     string visit(FcallStm* stm) override;
+    string visit(BoolExp* stm) override;
 
     string visit(IfStm* stm) override;
     string visit(Body* body) override;
@@ -91,6 +93,7 @@ public:
     int labelcont = 0;
     bool entornoFuncion = false;
     string nombreFuncion;
+    string visit(BoolExp* stm) override;
     string visit(BinaryExp* exp) override;
     string visit(NumberExp* exp) override;
     string visit(IdExp* exp) override;

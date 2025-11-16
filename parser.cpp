@@ -155,7 +155,7 @@ Stm* Parser::parseStm() {
             FcallStm* f=new FcallStm();
             f->nombre=nom;
             while(!match(Token::RPAREN)){
-                f->argumentos.push_back(parseCE());
+                f->argumentos.push_back(parseDE());
                 match(Token::COMA);
             }
             match(Token::SEMICOL);
@@ -165,21 +165,21 @@ Stm* Parser::parseStm() {
             AssignPStm* stm= new AssignPStm();
             accesExp* acc= new accesExp();
             acc->variable=nom;
-            acc->indexes.push_back(parseCE());
+            acc->indexes.push_back(parseDE());
             match(Token::RBRACE);
             while(match(Token::LBRACE)){
-                acc->indexes.push_back(parseCE());
+                acc->indexes.push_back(parseDE());
                 match(Token::RBRACE);
             }
             stm->arr=acc;
             match(Token::ASSIGN);
-            stm->e=parseCE();
+            stm->e=parseDE();
             match(Token::SEMICOL);
             return stm;
         }
         else {
             match(Token::ASSIGN);
-            e = parseCE();
+            e = parseDE();
             match(Token::SEMICOL);
             return new AssignStm(nom, e);
         }
@@ -189,7 +189,7 @@ Stm* Parser::parseStm() {
         match(Token::LPAREN);
         match(Token::STRING);
         match(Token::COMA);
-        e = parseCE();
+        e = parseDE();
         match(Token::RPAREN);
         match(Token::SEMICOL);
 
@@ -198,20 +198,23 @@ Stm* Parser::parseStm() {
     else if(match(Token::RETURN)) {
         ReturnStm* r  = new ReturnStm();
         match(Token::LPAREN);
-        r->e = parseCE();
+        r->e = parseDE();
         match(Token::RPAREN);
         match(Token::SEMICOL);
 
         return r;
     }
     else if (match(Token::IF)) {
-        e = parseCE();
+        e = parseDE();
         if (!match(Token::LCBRACE)) {
             cout << "Error: se esperaba '{' después de la expresión." << endl;
             exit(1);
         }
         tb = parseBody();
-        match(Token::RCBRACE);
+        if (!match(Token::RCBRACE)) {
+            cout << "Error: se esperaba '}' después del body." << endl;
+            exit(1);
+        }        fb= nullptr;
         if (match(Token::ELSE)) {
             match(Token::LCBRACE);
             fb = parseBody();
@@ -221,7 +224,7 @@ Stm* Parser::parseStm() {
         a = new IfStm(e, tb, fb);
     }
     else if (match(Token::WHILE)) {
-        e = parseCE();
+        e = parseDE();
         if (!match(Token::LCBRACE)) {
             cout << "Error: se esperaba '{' después de la expresión." << endl;
             exit(1);
@@ -239,32 +242,72 @@ Stm* Parser::parseStm() {
     }
     return a;
 }
+Exp* Parser::parseDE(){
+    Exp* l = parseCE();
+    while (check(Token::AND) or check(Token::OR)) {
+        if (match(Token::OR)) {
+            BinaryOp op = ORR_op;
+            Exp *r = parseCE();
+            if (l->type() == "BoolExp" and r->type() == "BoolExp") {
+                l = new BoolExp(((BoolExp *) l)->value or ((BoolExp *) r)->value);
+            } else
+                l = new BinaryExp(l, r, op);
+        } else if (match(Token::AND)) {
+            BinaryOp op = AND_op;
+            Exp *r = parseCE();
+            if (l->type() == "BoolExp" and r->type() == "BoolExp") {
+                l = new BoolExp(((BoolExp *) l)->value and ((BoolExp *) r)->value);
+            } else
+                l = new BinaryExp(l, r, op);
+        }
+    }
+    return l;
 
+}
 Exp* Parser::parseCE() {
     Exp* l = parseBE();
+
     if (match(Token::LE)) {
         BinaryOp op = LE_OP;
         Exp* r = parseBE();
-        l = new BinaryExp(l, r, op);
-    }else  if (match(Token::LEEQ)) {
+        if(l->type()=="NumberExp" and r->type()=="NumberExp")
+            l = new BoolExp(int(((NumberExp *) l)->value < ((NumberExp *) r)->value));
+        else
+            l = new BinaryExp(l, r, op);
+    }
+
+    else  if (match(Token::LEEQ)) {
         BinaryOp op = LEEQ_OP;
         Exp* r = parseBE();
-        l = new BinaryExp(l, r, op);
-    }else  if (match(Token::GR)) {
+        if(l->type()=="NumberExp" and r->type()=="NumberExp")
+            l = new BoolExp(int(((NumberExp *) l)->value <= ((NumberExp *) r)->value));
+        else
+            l = new BinaryExp(l, r, op);
+    }
+
+    else  if (match(Token::GR)) {
         BinaryOp op = GR_OP;
         Exp* r = parseBE();
+        if(l->type()=="NumberExp" and r->type()=="NumberExp")
+            l = new BoolExp(int(((NumberExp *) l)->value > ((NumberExp *) r)->value));
+        else
         l = new BinaryExp(l, r, op);
-    }else  if (match(Token::GREQ)) {
+    }
+
+    else  if (match(Token::GREQ)) {
         BinaryOp op = GREQ_OP;
         Exp* r = parseBE();
-        l = new BinaryExp(l, r, op);
+        if(l->type()=="NumberExp" and r->type()=="NumberExp")
+            l = new BoolExp(int(((NumberExp *) l)->value >= ((NumberExp *) r)->value));
+        else
+            l = new BinaryExp(l, r, op);
     }
     return l;
 }
 
 
 Exp* Parser::parseBE() {
-    Exp* l = parseE();
+    auto l = parseE();
     while (match(Token::PLUS) || match(Token::MINUS)) {
         BinaryOp op;
         if (previous->type == Token::PLUS){
@@ -273,15 +316,28 @@ Exp* Parser::parseBE() {
         else{
             op = MINUS_OP;
         }
-        Exp* r = parseE();
-        l = new BinaryExp(l, r, op);
+        auto r = parseE();
+        //cout<< l->type()<<"  ";
+        if(l->type()=="NumberExp" and r->type()=="NumberExp"){
+            //cout<<"optimizandoooooooo"<<endl;
+            switch(op){
+                case(PLUS_OP):
+                    l=new NumberExp(((NumberExp* )l)->value+((NumberExp* )r)->value);
+                    break;
+                case(MINUS_OP):
+                    l=new NumberExp(((NumberExp* )l)->value-((NumberExp* )r)->value);
+                    break;
+            }
+        }else {
+            l = new BinaryExp(l, r, op);
+        }
     }
     return l;
 }
 
 
 Exp* Parser::parseE() {
-    Exp* l = parseT();
+    auto l = parseT();
     while (match(Token::MUL) || match(Token::DIV)) {
         BinaryOp op;
         if (previous->type == Token::MUL){
@@ -290,8 +346,19 @@ Exp* Parser::parseE() {
         else{
             op = DIV_OP;
         }
-        Exp* r = parseT();
-        l = new BinaryExp(l, r, op);
+        auto r = parseT();
+        if(l->type()=="NumberExp" and r->type()=="NumberExp"){
+            switch(op){
+                case(MUL_OP):
+                    l=new NumberExp(((NumberExp* )l)->value*((NumberExp* )r)->value);
+                    break;
+                case(DIV_OP):
+                    l=new NumberExp(((NumberExp* )l)->value/((NumberExp* )r)->value);
+                    break;
+            }
+        }else {
+            l = new BinaryExp(l, r, op);
+        }
     }
     return l;
 }
@@ -308,7 +375,6 @@ Exp* Parser::parseT() {
 }
 
 Exp* Parser::parseF() {
-    Exp* e;
     string nom;
     if (match(Token::NUM)) {
         return new NumberExp(stoi(previous->text));
@@ -316,7 +382,7 @@ Exp* Parser::parseF() {
     else if (match(Token::LBRACE)) {// paresar el array
         arrExp* arr=new arrExp();
         while(!match(Token::RBRACE)){
-            arr->elements.push_back(parseCE());
+            arr->elements.push_back(parseDE());
             match(Token::COMA);
         }
         return arr;
@@ -326,14 +392,14 @@ Exp* Parser::parseF() {
         return new strExp(previous->text);
     }
     else if (match(Token::TRUE)) {
-        return new NumberExp(1);
+        return new BoolExp(1);
     }
     else if (match(Token::FALSE)) {
-        return new NumberExp(0);
+        return new BoolExp(0);
     }
     else if (match(Token::LPAREN))
     {
-        e = parseCE();
+        auto e = parseDE();
         match(Token::RPAREN);
         return e;
     }
@@ -343,9 +409,9 @@ Exp* Parser::parseF() {
             match(Token::LPAREN);
             FcallExp* fcall = new FcallExp();
             fcall->nombre = nom;
-            fcall->argumentos.push_back(parseCE());
+            fcall->argumentos.push_back(parseDE());
             while(match(Token::COMA)) {
-                fcall->argumentos.push_back(parseCE());
+                fcall->argumentos.push_back(parseDE());
             }
             match(Token::RPAREN);
             return fcall;
@@ -353,10 +419,10 @@ Exp* Parser::parseF() {
         if(match(Token::LBRACE)) {
           accesExp* acc=new accesExp();
           acc->variable=nom;
-          acc->indexes.push_back(parseCE());
+          acc->indexes.push_back(parseDE());
           match(Token::RBRACE);
           while(match(Token::LBRACE)){
-              acc->indexes.push_back(parseCE());
+              acc->indexes.push_back(parseDE());
               match(Token::RBRACE);
           }
           return acc;

@@ -41,8 +41,8 @@ int main(int argc, const char* argv[]) {
     Parser parser(&scanner1);
 
     // Parsear y generar AST
-  
-    Program* program = parser.parseProgram();     
+
+    Program* program = parser.parseProgram();
         string inputFile(argv[1]);
         size_t dotPos = inputFile.find_last_of('.');
         string baseName = (dotPos == string::npos) ? inputFile : inputFile.substr(0, dotPos);
@@ -71,6 +71,6 @@ int main(int argc, const char* argv[]) {
     codigo.tc=&tc;
     codigo.generar(program);
     outfile.close();
-    
+
     return 0;
 }

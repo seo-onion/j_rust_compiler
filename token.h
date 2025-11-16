@@ -53,7 +53,10 @@ public:
         ARROW,
         AMP,
         LBRACE,
-        RBRACE
+        RBRACE,
+        AND,
+        OR
+
 
 
     };

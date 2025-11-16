@@ -19,6 +19,7 @@ public:
     Body* parseBody();
     VarDec* parseVarDec();
     Stm* parseStm();
+    Exp* parseDE();
     Exp* parseCE();
     Exp* parseBE();
     Exp* parseE();

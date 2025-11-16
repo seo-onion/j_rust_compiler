@@ -10,6 +10,9 @@ using namespace std;
 string BinaryExp::accept(Visitor* visitor) {
     return visitor->visit(this);
 }
+string BoolExp::accept(Visitor* visitor) {
+    return visitor->visit(this);
+}
 string AssignPStm::accept(Visitor* visitor) {
     return visitor->visit(this);
 }
@@ -87,7 +90,7 @@ int GenCodeVisitor::generar(Program* program) {
 string GenCodeVisitor::visit(Program* program) {
     memoria.add_level();
     out << ".data\nprint_fmt: .string \"%ld \\n\""<<endl;
-    out<<"fmt_str: .string \"%s\\n\""<<endl;
+    out<<R"(fmt_str: .string "%s\n")"<<endl;
     for (auto dec : program->vdlist){
         dec->accept(this);
     }
@@ -120,7 +123,7 @@ string GenCodeVisitor::visit(VarDec* stm) {
 
 string GenCodeVisitor::visit(accesExp* stm){
     int base=memoria.lookup(stm->variable);
-    out << " movq " << base << "(%rbp), %r8"<<endl;    //variable
+    out << "movq " << base << "(%rbp), %r8"<<endl;    //variable
     for(Exp* e:stm->indexes){
         e->accept(this); //en el rax queda el offset en variables
         out<<"movq $8,%rbx\n";
@@ -155,47 +158,57 @@ string GenCodeVisitor::visit(NumberExp* exp) {
     out << " movq $" << exp->value << ", %rax"<<endl;
     return string{};
 }
+string GenCodeVisitor::visit(BoolExp* exp) {
+    out << " movq $" << exp->value << ", %rax"<<endl;
+    return string{};
+}
 
 string GenCodeVisitor::visit(IdExp* exp) {
     if (memoriaGlobal.count(exp->value))
-        out << " movq " << exp->value << "(%rip), %rax"<<endl;
+        out << "movq " << exp->value << "(%rip), %rax"<<endl;
     else
-        out << " movq " << memoria.lookup(exp->value) << "(%rbp), %rax"<<endl;
+        out << "movq " << memoria.lookup(exp->value) << "(%rbp), %rax"<<endl;
     return string{};
 }
 
 string GenCodeVisitor::visit(BinaryExp* exp) {
     exp->left->accept(this);
-    out << " pushq %rax\n";
+    out << "pushq %rax\n";
     exp->right->accept(this);
-    out << " movq %rax, %rcx\n popq %rax\n";
+    out << "movq %rax, %rcx\n popq %rax\n";
     switch (exp->op) {
-        case PLUS_OP:  out << " addq %rcx, %rax\n"; break;
-        case MINUS_OP: out << " subq %rcx, %rax\n"; break;
-        case MUL_OP:   out << " imulq %rcx, %rax\n"; break;
+        case AND_op:
+            out<<"andq %rcx,%rax\n";
+            break;
+        case ORR_op:
+            out<<"orq %rcx,%rax\n";
+            break;
+        case PLUS_OP:  out << "addq %rcx, %rax\n"; break;
+        case MINUS_OP: out << "subq %rcx, %rax\n"; break;
+        case MUL_OP:   out << "imulq %rcx, %rax\n"; break;
         case LE_OP:
-            out << " cmpq %rcx, %rax\n"
-                      << " movl $0, %eax\n"
-                      << " setl %al\n"
-                      << " movzbq %al, %rax\n";
+            out << "cmpq %rcx, %rax\n"
+                      << "movl $0, %eax\n"
+                      << "setl %al\n"
+                      << "movzbq %al, %rax\n";
             break;
         case LEEQ_OP:
-            out << " cmpq %rcx, %rax\n"
-                << " movl $0, %eax\n"
-                << " setle %al\n"
-                << " movzbq %al, %rax\n";
+            out << "cmpq %rcx, %rax\n"
+                << "movl $0, %eax\n"
+                << "setle %al\n"
+                << "movzbq %al, %rax\n";
             break;
         case GR_OP:
-            out << " cmpq %rcx, %rax\n"
-                << " movl $0, %eax\n"
-                << " setg %al\n"
-                << " movzbq %al, %rax\n";
+            out << "cmpq %rcx, %rax\n"
+                << "movl $0, %eax\n"
+                << "setg %al\n"
+                << "movzbq %al, %rax\n";
             break;
         case GREQ_OP:
-            out << " cmpq %rcx, %rax\n"
-                << " movl $0, %eax\n"
-                << " setge %al\n"
-                << " movzbq %al, %rax\n";
+            out << "cmpq %rcx, %rax\n"
+                << "movl $0, %eax\n"
+                << "setge %al\n"
+                << "movzbq %al, %rax\n";
             break;
 
 
@@ -207,37 +220,30 @@ string GenCodeVisitor::visit(BinaryExp* exp) {
 string GenCodeVisitor::visit(AssignStm* stm) {
     stm->e->accept(this);
     if (memoriaGlobal.count(stm->id))
-        out << " movq %rax, " << stm->id << "(%rip)"<<endl;
+        out << "movq %rax, " << stm->id << "(%rip)"<<endl;
     else
-        out << " movq %rax, " << memoria.lookup(stm->id) << "(%rbp)"<<endl;
+        out << "movq %rax, " << memoria.lookup(stm->id) << "(%rbp)"<<endl;
     return string{};
 }
 
 string GenCodeVisitor::visit(PrintStm* stm) {
     string tipo=stm->e->accept(tc);
     stm->e->accept(this);
-    out<<"#Imprimiendo tipo: "<<tipo<<endl;
+    //out<<"#Imprimiendo tipo: "<<tipo<<endl;
     if (tipo=="str")
         out<<
-        " leaq fmt_str(%rip), %rdi   \n"
-        "  movq %rax, %rsi   \n"
-        " movl $0, %eax\n"
+        "leaq fmt_str(%rip), %rdi   \n"
+        "movq %rax, %rsi   \n"
+        "movl $0, %eax\n"
         "call printf@PLT      \n"        ;
 
 
     else
         out <<
-            " movq %rax, %rsi\n"
-            " leaq print_fmt(%rip), %rdi\n"
-            " movl $0, %eax\n"
-            " call printf@PLT\n";
-
-//    out <<
-//        " movq (%rax), %rsi\n"
-//        " leaq print_fmt(%rip), %rdi\n"
-//        " movl $0, %eax\n"
-//        " call printf@PLT\n";
-
+            "movq %rax, %rsi\n"
+            "leaq print_fmt(%rip), %rdi\n"
+            "movl $0, %eax\n"
+            "call printf@PLT\n";
     return string{};
 }
 
@@ -257,25 +263,48 @@ string GenCodeVisitor::visit(Body* b) {
 
 string GenCodeVisitor::visit(IfStm* stm) {
     int label = labelcont++;
+    if(stm->condition->type()=="BoolExp"){
+        if(((BoolExp*)stm->condition)->value) {
+            out << "# se compila directamente body del if porque, la condicion siempre es verdadera" << endl;
+            stm->then->accept(this);
+        }
+        else if (stm->els) {
+            out << "# se compila directamente body del else porque, la condicion siempre es falsa" << endl;
+            stm->els->accept(this);
+        }
+        return string{};
+    }
     stm->condition->accept(this);
-    out << " cmpq $0, %rax"<<endl;
+    out << " cmpq $0, %rax" << endl;
     out << " je else_" << label << endl;
-   stm->then->accept(this);
+    stm->then->accept(this);
     out << " jmp endif_" << label << endl;
-    out << " else_" << label << ":"<< endl;
+    out << " else_" << label << ":" << endl;
     if (stm->els) stm->els->accept(this);
-    out << "endif_" << label << ":"<< endl;
+    out << "endif_" << label << ":" << endl;
+
     return string{};
 }
 
 string GenCodeVisitor::visit(WhileStm* stm) {
     int label = labelcont++;
+    if(stm->condition->type()=="BoolExp"){
+        if(((BoolExp*)stm->condition)->value){
+            out << "# Se compila directamente el cuerpo del while porque la consicion siempre es verdadera"<<endl;
+            stm->b->accept(this);
+        }
+        else
+            out << "# no se compila elbody del while porque la condicion siempre es falsa"<<endl;
+
+        return string{};
+
+    }
     out << "while_" << label << ":"<<endl;
     stm->condition->accept(this);
-    out << " cmpq $0, %rax" << endl;
-    out << " je endwhile_" << label << endl;
+    out << "cmpq $0, %rax" << endl;
+    out << "je endwhile_" << label << endl;
     stm->b->accept(this);
-    out << " jmp while_" << label << endl;
+    out << "jmp while_" << label << endl;
     out << "endwhile_" << label << ":"<< endl;
     return string{};
 }
@@ -290,7 +319,7 @@ string GenCodeVisitor::visit(strExp* str){
     out<<"pushq %rbx\n";
 
     out<<"movq $"<<str->value.size()+1<<", %rdi\n";
-    out<< "call malloc@PLT\n";
+    out<<"call malloc@PLT\n";
     out<<"movq %rax,%rbx\n";
     int cont=0;
     for(char c:str->value){
@@ -306,7 +335,7 @@ string GenCodeVisitor::visit(arrExp* arr){
    // out<<"#se visita un array exp\n";
     out<<"pushq %rbx\n";
     out<<"movq $"<<arr->elements.size()*8<<", %rdi\n";
-    out<< "call malloc@PLT\n";
+    out<<"call malloc@PLT\n";
     out<<"movq %rax,%rbx\n";
     int cont=0;
     for(Exp* exp:arr->elements){
@@ -331,20 +360,19 @@ string GenCodeVisitor::visit(FunDec* f) {
     vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
     out << ".globl " << f->nombre << endl;
     out << f->nombre <<  ":" << endl;
-    out << " pushq %rbp" << endl;
-    out << " movq %rsp, %rbp" << endl;
-    out << " subq $" << tc->vars_per_funct[f->nombre]*8 << ", %rsp" << endl;
+    out << "pushq %rbp" << endl;
+    out << "movq %rsp, %rbp" << endl;
+    out << "subq $" << tc->vars_per_funct[f->nombre]*8 << ", %rsp" << endl;
     int size = f->Pnombres.size();
     for (int i = 0; i < size; i++) {
         memoria.add_var(f->Pnombres[i],offset);
-        out << " movq " << argRegs[i] << "," << offset << "(%rbp)" << endl;
+        out << "movq " << argRegs[i] << "," << offset << "(%rbp)" << endl;
         offset -= 8;
     }
     for (auto i: f->cuerpo->declarations){
         i->accept(this);
     }
     int reserva = -offset - 8;
-
     for (auto i: f->cuerpo->StmList){
         i->accept(this);
     }
@@ -361,7 +389,7 @@ string GenCodeVisitor::visit(FcallExp* exp) {
     int size = exp->argumentos.size();
     for (int i = 0; i < size; i++) {
         exp->argumentos[i]->accept(this);
-        out << " mov %rax, " << argRegs[i] <<endl;
+        out << "mov %rax, " << argRegs[i] <<endl;
     }
     out << "call " << exp->nombre << endl;
     return string{};
@@ -371,7 +399,7 @@ string GenCodeVisitor::visit(FcallStm* stm) {
     int size = stm->argumentos.size();
     for (int i = 0; i < size; i++) {
         stm->argumentos[i]->accept(this);
-        out << " mov %rax, " << argRegs[i] <<endl;
+        out << "mov %rax, " << argRegs[i] <<endl;
     }
     out << "call " << stm->nombre << endl;
     return string{};
@@ -386,18 +414,28 @@ int Typechecker::generar(Program *program) {
 string Typechecker::visit(BinaryExp *exp) {
     string l=exp->left->accept(this);
     string r=exp->right->accept(this);
-    if(l!="i64" or r!="i64"){
-        throw runtime_error("Tipos invalidos para binary op"+Exp::binopToChar(exp->op));
-
-    }
     switch (exp->op) {
-        case PLUS_OP:  ;
-        case MINUS_OP: ;
-        case MUL_OP:  ;
-        case DIV_OP:;
+        case AND_op:
+        case ORR_op:
+            if(l!="bool" or r!="bool"){
+                throw runtime_error("Tipos invalidos para binary op"+Exp::binopToChar(exp->op));
+            }
+            return "bool";
+        case PLUS_OP:
+        case MINUS_OP:
+        case MUL_OP:
+        case DIV_OP:
         case POW_OP:
+            if(l!="i64" or r!="i64"){
+                throw runtime_error("Tipos invalidos para binary op"+Exp::binopToChar(exp->op));
+
+            }
             return "i64";
         default:
+            if(l!="i64" or r!="i64"){
+                throw runtime_error("Tipos invalidos para binary op"+Exp::binopToChar(exp->op));
+
+            }
             return "bool";
     }
 }
@@ -455,7 +493,8 @@ string Typechecker::visit(IfStm *stm) {
     int a = locales;
     stm-> then -> accept(this);
     int b = locales;
-    stm-> els  -> accept(this);
+    if(stm->els)
+        stm-> els  -> accept(this);
     int c = locales;
     locales = a + max(b-a,c-b);
 
@@ -550,7 +589,9 @@ string Typechecker::visit(FunDec *fd) {
 string Typechecker::visit(strExp *str) {
     return "str";
 }
-
+string Typechecker::visit(BoolExp *str) {
+    return "bool";
+}
 
 string Typechecker::visit(accesExp* exp){
     int cont=0;
