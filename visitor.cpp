@@ -10,6 +10,12 @@ using namespace std;
 string BinaryExp::accept(Visitor* visitor) {
     return visitor->visit(this);
 }
+string lenExp::accept(Visitor* visitor) {
+    return visitor->visit(this);
+}
+string pushStm::accept(Visitor* visitor) {
+    return visitor->visit(this);
+}
 string BoolExp::accept(Visitor* visitor) {
     return visitor->visit(this);
 }
@@ -59,7 +65,6 @@ string WhileStm::accept(Visitor* visitor) {
 string Body::accept(Visitor* visitor){
     return visitor->visit(this);
 }
-
 
 string VarDec::accept(Visitor* visitor){
     return visitor->visit(this);
@@ -114,24 +119,44 @@ string GenCodeVisitor::visit(VarDec* stm) {
         if (!entornoFuncion) {
             memoriaGlobal[var] = true;
         } else {
-            memoria.add_var(var, offset);
-            offset -= 8;
+            if(tc->tipos[var]=="i64" or tc->tipos[var]=="bool") {
+                memoria.add_var(var, offset);
+                offset -= 8;
+            }
+            else{
+                offset-=16;
+                memoria.add_var(var, offset+8);
+            }
         }
     }
         return string{};
 }
 
 string GenCodeVisitor::visit(accesExp* stm){
+    string tipo=stm->accept(tc);
+    int type_size=16;
+    if(tipo=="bool" or tipo=="i64"){
+        type_size=8;
+    }
+    int cont=1;
     int base=memoria.lookup(stm->variable);
     out << "movq " << base << "(%rbp), %r8"<<endl;    //variable
     for(Exp* e:stm->indexes){
         e->accept(this); //en el rax queda el offset en variables
-        out<<"movq $8,%rbx\n";
+        if(cont!=stm->indexes.size()){
+            out<<"movq $16,%rbx\n";
+        }else {
+            out << "movq $" << type_size << ",%rbx\n";
+        }
         out<<"imulq %rbx,%rax\n";
         out<<"addq %r8, %rax \n";
         out<<"movq (%rax),%r8\n";
+        cont+=1;
     }
-    out<<"movq %rax,%rbx\n";
+    if(type_size==16){
+        out<<"movq 8(%rax),%rcx\n"; // tamanho del array o string de retorno
+    }
+    out<<"movq %rax,%rbx\n"; //puntero al valor esta en rbx
     out<<"movq %r8,%rax\n";
     return string{};
 }
@@ -140,8 +165,14 @@ string GenCodeVisitor::visit(AssignPStm* stm) {
     stm->arr->accept(this);
     out<<"pushq %rbx\n";
     stm->e->accept(this);
+    string t=stm->e->accept(tc);
     out<<"popq %rbx\n";
     out<<"movq %rax,(%rbx)\n";
+    if(!(t=="bool" or t=="i64")){
+        out<<"movq %rcx,8(%rbx)\n";
+    }
+
+
     return string{};
 }
 
@@ -163,13 +194,7 @@ string GenCodeVisitor::visit(BoolExp* exp) {
     return string{};
 }
 
-string GenCodeVisitor::visit(IdExp* exp) {
-    if (memoriaGlobal.count(exp->value))
-        out << "movq " << exp->value << "(%rip), %rax"<<endl;
-    else
-        out << "movq " << memoria.lookup(exp->value) << "(%rbp), %rax"<<endl;
-    return string{};
-}
+
 
 string GenCodeVisitor::visit(BinaryExp* exp) {
     exp->left->accept(this);
@@ -221,15 +246,19 @@ string GenCodeVisitor::visit(AssignStm* stm) {
     stm->e->accept(this);
     if (memoriaGlobal.count(stm->id))
         out << "movq %rax, " << stm->id << "(%rip)"<<endl;
-    else
-        out << "movq %rax, " << memoria.lookup(stm->id) << "(%rbp)"<<endl;
+    else if(tc->tipos[stm->id]=="bool" or tc->tipos[stm->id]=="i64"){
+        out << "movq %rax, " << memoria.lookup(stm->id) << "(%rbp)" << endl;
+    }
+    else {
+        out << "movq %rcx, " << memoria.lookup(stm->id)+8 << "(%rbp)" << endl;
+        out << "movq %rax, " << memoria.lookup(stm->id) << "(%rbp)" << endl;
+    }
     return string{};
 }
 
 string GenCodeVisitor::visit(PrintStm* stm) {
     string tipo=stm->e->accept(tc);
     stm->e->accept(this);
-    //out<<"#Imprimiendo tipo: "<<tipo<<endl;
     if (tipo=="str")
         out<<
         "leaq fmt_str(%rip), %rdi   \n"
@@ -282,7 +311,6 @@ string GenCodeVisitor::visit(IfStm* stm) {
     out << " else_" << label << ":" << endl;
     if (stm->els) stm->els->accept(this);
     out << "endif_" << label << ":" << endl;
-
     return string{};
 }
 
@@ -291,7 +319,9 @@ string GenCodeVisitor::visit(WhileStm* stm) {
     if(stm->condition->type()=="BoolExp"){
         if(((BoolExp*)stm->condition)->value){
             out << "# Se compila directamente el cuerpo del while porque la consicion siempre es verdadera"<<endl;
+            out << "while_" << label << ":"<<endl;
             stm->b->accept(this);
+            out << "while_" << label << ":"<<endl;
         }
         else
             out << "# no se compila elbody del while porque la condicion siempre es falsa"<<endl;
@@ -316,33 +346,116 @@ string GenCodeVisitor::visit(ReturnStm* stm) {
     return string{};
 }
 string GenCodeVisitor::visit(strExp* str){
-    out<<"pushq %rbx\n";
-
     out<<"movq $"<<str->value.size()+1<<", %rdi\n";
     out<<"call malloc@PLT\n";
-    out<<"movq %rax,%rbx\n";
     int cont=0;
     for(char c:str->value){
-        out<<"movb $'"<<c<<"',"<<cont<<"(%rbx)\n";
+        out<<"movb $'"<<c<<"',"<<cont<<"(%rax)\n";
         cont++;
     }
-    out<<"movb $0,"<<cont<<"(%rbx)\n";
-    out<<"popq %rbx\n";
+    out<<"movb $0,"<<cont<<"(%rax)\n";
+    out<<"movq $"<<str->value.size()<<",%rcx\n";  //guardo el size en rcx
+    return string{};
+}
+string GenCodeVisitor::visit(IdExp* exp) {
+    if (memoriaGlobal.count(exp->value))
+        out << "movq " << exp->value << "(%rip), %rax"<<endl;
+    else {
+        out << "movq " << memoria.lookup(exp->value) << "(%rbp), %rax" << endl;
+        if(!(tc->tipos[exp->value]=="i64" or tc->tipos[exp->value]=="bool")) {
+            out << "movq " << memoria.lookup(exp->value) + 8 << "(%rbp), %rcx" << endl;
+
+        }
+    }
+    return string{};
+}
+string GenCodeVisitor::visit(lenExp* exp){
+    exp->container->accept(this);
+    out<<"mov %rcx,%rax\n";
+    return string{};
+}
+
+string GenCodeVisitor::visit(pushStm* stm){
+    int size=16;
+    string t=stm->p->accept(tc);
+    if(t=="bool" or t=="i64"){
+        size=8;
+    }
+    if(stm->vector->type()=="IdExp"){
+        int base=memoria.lookup(((IdExp*)stm->vector)->value);
+        out<<"# le hago push a una variable del stack\n";
+        out<<"movq %rbp,%rbx\n";
+        out<<"addq $"<<base<<",%rbx\n";
+        out<<"movq 8(%rbx),%rcx\n";
+        out<<"movq (%rbx),%rax\n";
+    }
+    else
+        stm->vector->accept(this);// en rax esta el puntero, en rcx el tamanho y en rbx la ubicacion del puntero
+    int label=labelcont++;
+    out<<"pushq %rax\n"
+         "movq %rcx,%rdi\n"
+         "addq $1,%rdi\n"
+         "movq %rdi,8(%rbx)\n"
+         "movq $"<<size<<",%rcx\n"
+         "imulq %rcx,%rdi\n"
+         "call malloc@PLT\n"
+         "movq %rax,(%rbx)\n"  //hasta aqui ya se actualizo el tamanho del array pero no se copiaron los valores
+
+
+         "popq %rax\n"         //en rax esta el arreglo que se debe copiar y rcx no tiene nigun valor util
+         "movq 8(%rbx),%rcx\n"
+         "movq (%rbx),%rbx\n"
+         "movq $"<<size<<",%r8\n"
+         "imulq %r8,%rcx\n"
+         "subq $"<<size<<",%rcx\n"
+         "addq %rax,%rcx\n"
+
+
+
+         "for"<<label<<":\n"
+         "cmpq %rax,%rcx\n"
+         "je endfor"<<label<<"\n"
+         "movq (%rax),%r8\n"
+         "movq %r8,(%rbx)\n"
+         "addq $8,%rax\n"
+         "addq $8,%rbx\n"
+         "jmp for"<<label<<"\n"
+         "endfor"<<label<<":\n";
+    stm->p->accept(this);// tengo el valor en el rax y el tamanho en rcx si es que tiene
+    out<<"movq %rax,(%rbx)\n";
+    if(size==16)
+        out<<"movq %rcx,8(%rbx)\n";
+
+
+
+
+
+
+
+
     return string{};
 }
 
 string GenCodeVisitor::visit(arrExp* arr){
    // out<<"#se visita un array exp\n";
+    int type_size=16;
+    if(arr->tipo=="bool" or arr->tipo=="i64"){
+        type_size=8;
+    }
     out<<"pushq %rbx\n";
-    out<<"movq $"<<arr->elements.size()*8<<", %rdi\n";
+    out<<"movq $"<<arr->elements.size()*type_size<<", %rdi\n";
     out<<"call malloc@PLT\n";
     out<<"movq %rax,%rbx\n";
     int cont=0;
     for(Exp* exp:arr->elements){
         exp->accept(this);
         out<<"movq %rax,"<<cont<<"(%rbx)\n";
-        cont+=8;
+        if(type_size==16){
+            out<<"movq %rcx,"<<cont+8<<"(%rbx)\n";
+        }
+        cont+=type_size;
     }
+    out<<"movq $"<<arr->elements.size()<<",%rcx\n";  //guardo el size en rcx
     out<<"movq %rbx,%rax\n";
     out<<"popq %rbx\n";
 
@@ -354,7 +467,6 @@ string GenCodeVisitor::visit(FunDec* f) {
     entornoFuncion = true;
     memoria.clear();
     memoria.add_level();
-
     offset = -8;
     nombreFuncion = f->nombre;
     vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
@@ -362,12 +474,28 @@ string GenCodeVisitor::visit(FunDec* f) {
     out << f->nombre <<  ":" << endl;
     out << "pushq %rbp" << endl;
     out << "movq %rsp, %rbp" << endl;
-    out << "subq $" << tc->vars_per_funct[f->nombre]*8 << ", %rsp" << endl;
-    int size = f->Pnombres.size();
+    out << "subq $" << tc->bytes_per_funct[f->nombre]<< ", %rsp" << endl;
+    int size = 0;
+    for(string t:f->Ptipos){
+        if(t=="bool" or t=="i64")
+            size+=1;
+        else
+            size+=2;
+    }
+
     for (int i = 0; i < size; i++) {
-        memoria.add_var(f->Pnombres[i],offset);
-        out << "movq " << argRegs[i] << "," << offset << "(%rbp)" << endl;
-        offset -= 8;
+        if(f->Ptipos[i]=="bool" or f->Ptipos[i]=="i64") {
+            out << "movq " << argRegs[i] << "," << offset << "(%rbp)" << endl;
+            memoria.add_var(f->Pnombres[i], offset);
+            offset -= 8;
+        }
+        else{
+            out << "movq " << argRegs[i] << "," << offset << "(%rbp)" << endl;
+            offset-=8;
+            memoria.add_var(f->Pnombres[i], offset);
+            out << "movq " << argRegs[++i] << "," << offset << "(%rbp)" << endl;
+            offset-=8;
+        }
     }
     for (auto i: f->cuerpo->declarations){
         i->accept(this);
@@ -387,9 +515,21 @@ string GenCodeVisitor::visit(FunDec* f) {
 string GenCodeVisitor::visit(FcallExp* exp) {
     vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
     int size = exp->argumentos.size();
+    int j=0;
     for (int i = 0; i < size; i++) {
-        exp->argumentos[i]->accept(this);
-        out << "mov %rax, " << argRegs[i] <<endl;
+        string t=exp->argumentos[i]->accept(tc);
+        if(t=="bool" or t=="i64"){
+            exp->argumentos[i]->accept(this);
+            out << "mov %rax, " << argRegs[j] <<endl;
+            j++;
+        }
+        else{
+            exp->argumentos[i]->accept(this);
+            out << "mov %rcx, " << argRegs[j] <<endl;
+            out << "mov %rax, " << argRegs[j+1] <<endl;
+            j+=2;
+
+        }
     }
     out << "call " << exp->nombre << endl;
     return string{};
@@ -397,9 +537,20 @@ string GenCodeVisitor::visit(FcallExp* exp) {
 string GenCodeVisitor::visit(FcallStm* stm) {
     vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
     int size = stm->argumentos.size();
+    int j=0;
     for (int i = 0; i < size; i++) {
-        stm->argumentos[i]->accept(this);
-        out << "mov %rax, " << argRegs[i] <<endl;
+        string t=stm->argumentos[i]->accept(tc);
+        if(t=="bool" or t=="i64"){
+            stm->argumentos[i]->accept(this);
+            out << "mov %rax, " << argRegs[j] <<endl;
+            j++;
+        }
+        else{
+            stm->argumentos[i]->accept(this);
+            out << "mov %rcx, " << argRegs[j] <<endl;
+            out << "mov %rax, " << argRegs[j+1] <<endl;
+            j+=2;
+        }
     }
     out << "call " << stm->nombre << endl;
     return string{};
@@ -428,7 +579,6 @@ string Typechecker::visit(BinaryExp *exp) {
         case POW_OP:
             if(l!="i64" or r!="i64"){
                 throw runtime_error("Tipos invalidos para binary op"+Exp::binopToChar(exp->op));
-
             }
             return "i64";
         default:
@@ -474,8 +624,13 @@ string Typechecker::visit(PrintStm *stm) {
 
 string Typechecker::visit(AssignStm *stm) {
     if(tipos[stm->id]=="undefined"){
-        //cout<<stm->id<<" = "<<stm->e->accept(this)<<endl;
-        tipos[stm->id]=stm->e->accept(this);
+        string t=stm->e->accept(this);
+        tipos[stm->id]=t;
+        if(t=="i64" or t=="bool")
+            locales+=8;
+        else
+            locales+=16;
+
     }
     else if(tipos[stm->id]!= stm->e->accept(this))
         throw runtime_error("Tipo invalido para la variable: "+stm->id);
@@ -514,8 +669,15 @@ string Typechecker::visit(Body *body) {
 }
 
 string Typechecker::visit(VarDec *vd) {
-    locales += vd->vars.size();
-
+    int s;
+    if(vd->type=="undefined") {
+        s=0;
+    }else if(vd->type=="bool" or vd->type=="i64"){
+        s=8;
+    }else {
+        s=16;
+    }
+    locales += vd->vars.size()*s;
     for(const string& v:vd->vars){
         tipos[v]=vd->type;
     }
@@ -537,7 +699,6 @@ string Typechecker::visit(FcallExp *fcall) {
     for(int i=0;i<fcall->argumentos.size();i++){
         t=fcall->argumentos[i]->accept(this);
         if( t!= f->Ptipos[i]){
-            cout<<t<<"  -  "<<f->Ptipos[i];
             throw runtime_error("Tipo invalido en la llamada de funcion: "+fcall->nombre);
 
         }
@@ -577,21 +738,49 @@ string Typechecker::visit(ReturnStm *r) {
 }
 
 string Typechecker::visit(FunDec *fd) {
-    int parametros = fd->Pnombres.size();
+    int parametros=0;
+    int i=0;
+    for (string t: fd->Ptipos){
+        if(t=="bool" or t=="i64")
+            parametros+=8;
+        else
+            parametros += 16;
+        tipos[fd->Pnombres[i]]=t;
+        i+=1;
+
+    }
     tipos[fd->nombre]=fd->tipo;
     nombreFuncion=fd->nombre;
     locales = 0;
     fd->cuerpo->accept(this);
-    vars_per_funct[fd->nombre] = parametros + locales;
+    bytes_per_funct[fd->nombre] = parametros + locales;
     return fd->tipo;
 }
-
+string Typechecker::visit(lenExp* exp) {
+    string t=exp->container->accept(this);
+    if(t=="bool" or t=="i64")
+        throw runtime_error(".len() se debe usar en un vector o string");
+    return "i64";
+}
 string Typechecker::visit(strExp *str) {
     return "str";
 }
 string Typechecker::visit(BoolExp *str) {
     return "bool";
 }
+string Typechecker::visit(pushStm *stm) {
+    string vt=stm->vector->accept(this);
+    string t=stm->p->accept(this);
+
+    if(vt.size()<=5 or vt.substr(4,vt.size()-5)!=t){
+        //cout<<vt.substr(4,vt.size()-5)<<"  ---  "<<t<<endl;
+        throw runtime_error("La expresion a pushear debe ser del tipo adecuado");
+    }
+    return "void";
+
+}
+
+
 
 string Typechecker::visit(accesExp* exp){
     int cont=0;

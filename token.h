@@ -55,10 +55,12 @@ public:
         LBRACE,
         RBRACE,
         AND,
-        OR
-
-
-
+        OR,
+        DOT,
+        LEN,
+        PUSH,
+        VEC,
+        CLONE
     };
 
     // Atributos

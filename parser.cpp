@@ -102,8 +102,10 @@ FunDec *Parser::parseFunDec() {
     match(Token::ID);
     fd->nombre = previous->text;
     match(Token::LPAREN);
+    match(Token::MUT);
     if(check(Token::ID)) {
         while(match(Token::ID)) {
+            match(Token::MUT);
             fd->Pnombres.push_back(previous->text);
             match(Token::DDOTS);
             match(Token::ID);
@@ -156,7 +158,7 @@ Stm* Parser::parseStm() {
             f->nombre=nom;
             while(!match(Token::RPAREN)){
                 f->argumentos.push_back(parseDE());
-                match(Token::COMA);
+
             }
             match(Token::SEMICOL);
             return f;
@@ -171,11 +173,32 @@ Stm* Parser::parseStm() {
                 acc->indexes.push_back(parseDE());
                 match(Token::RBRACE);
             }
-            stm->arr=acc;
-            match(Token::ASSIGN);
-            stm->e=parseDE();
+            if(match(Token::ASSIGN)) {
+                stm->arr = acc;
+                stm->e = parseDE();
+                match(Token::SEMICOL);
+                return stm;
+            }else if(match(Token::DOT)){
+                pushStm* push=new pushStm();
+                push->vector=acc;
+                match(Token::PUSH);
+                match(Token::LPAREN);
+                push->p=parseDE();
+                match(Token::RPAREN);
+                match(Token::SEMICOL);
+                return push;
+            }
+        }
+        else if(match(Token::DOT)){
+            pushStm* push=new pushStm();
+            push->vector=new IdExp(nom);
+            match(Token::PUSH);
+            match(Token::LPAREN);
+            push->p=parseDE();
+            match(Token::RPAREN);
             match(Token::SEMICOL);
-            return stm;
+
+            return push;
         }
         else {
             match(Token::ASSIGN);
@@ -192,7 +215,6 @@ Stm* Parser::parseStm() {
         e = parseDE();
         match(Token::RPAREN);
         match(Token::SEMICOL);
-
         return new PrintStm(e);
     }
     else if(match(Token::RETURN)) {
@@ -204,6 +226,7 @@ Stm* Parser::parseStm() {
 
         return r;
     }
+
     else if (match(Token::IF)) {
         e = parseDE();
         if (!match(Token::LCBRACE)) {
@@ -236,8 +259,9 @@ Stm* Parser::parseStm() {
         }
         a = new WhileStm(e, tb);
     }
+
     else{
-        cout<<current;
+        cout<<current->text;
         throw runtime_error("Error sintáctico");
     }
     return a;
@@ -379,8 +403,10 @@ Exp* Parser::parseF() {
     if (match(Token::NUM)) {
         return new NumberExp(stoi(previous->text));
     }
-    else if (match(Token::LBRACE)) {// paresar el array
+    else if (match(Token::VEC)) {// paresar el array
         arrExp* arr=new arrExp();
+        match(Token::EXCLAM);
+        match(Token::LBRACE);
         while(!match(Token::RBRACE)){
             arr->elements.push_back(parseDE());
             match(Token::COMA);
@@ -425,14 +451,39 @@ Exp* Parser::parseF() {
               acc->indexes.push_back(parseDE());
               match(Token::RBRACE);
           }
+          if(match(Token::DOT)){
+               if(match(Token::LEN)) {
+                  match(Token::LPAREN);
+                  match((Token::RPAREN));
+                  return new lenExp(acc);
+              }else {
+                   match(Token::CLONE);
+                   match(Token::LPAREN);
+                   match(Token::RPAREN);
+                   match(Token::COMA);
+               }
+
+          }
           return acc;
         }
+
         else {
+            match(Token::DOT);
+            if(match(Token::LEN)){
+
+                match(Token::LPAREN);
+                match((Token::RPAREN));
+                return new lenExp(new IdExp(nom));
+            }else if(match(Token::CLONE)) {
+                match(Token::LPAREN);
+                match(Token::RPAREN);
+                match(Token::COMA);
+            }
             return new IdExp(nom);
             }
     }
     else {
-        cout<<current;
+        cout<<current->text;
         throw runtime_error("Error sintáctico");
     }
 }

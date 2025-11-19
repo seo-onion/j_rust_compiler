@@ -67,10 +67,19 @@ Token* Scanner::nextToken() {
         else if (lexema=="false") return new Token(Token::FALSE, input, first, current - first);
         else if (lexema=="mut") return new Token(Token::MUT, input, first, current - first);
         else if (lexema=="let") return new Token(Token::LET, input, first, current - first);
-
         else if (lexema=="fn") return new Token(Token::FN, input, first, current - first);
         else if (lexema=="endfun") return new Token(Token::ENDFUN, input, first, current - first);
         else if (lexema=="return") return new Token(Token::RETURN, input, first, current - first);
+        else if (lexema=="len") return new Token(Token::LEN, input, first, current - first);
+        else if (lexema=="push") return new Token(Token::PUSH, input, first, current - first);
+        else if (lexema=="clone") return new Token(Token::CLONE, input, first, current - first);
+
+        else if (lexema=="Vec" and input[current]=='<' ) {
+            //cout<<"aaaaaaaaaa"<<endl;
+            while(current < input.length() && input[current]!='>') current++;
+            return new Token(Token::ID,input,first,++current-first);
+        }
+        else if (lexema=="vec") return new Token(Token::VEC, input, first, current - first);
 
         else return new Token(Token::ID, input, first, current - first);
     }
@@ -82,10 +91,12 @@ Token* Scanner::nextToken() {
         return new Token(Token::STRING,input,first,++current-first-1);
     }
     // Operadores
-    else if (strchr("+/-*();=<,{}:!&[]>|", c)) {
+    else if (strchr("+/-*();=<,{}:!&[]>|.", c)) {
         switch (c) {
             case '!': token = new Token(Token::EXCLAM,  c); break;
             case '|': token = new Token(Token::OR,  c); break;
+            case '.': token = new Token(Token::DOT,  c); break;
+
             case '&':
                 if(input[current+1]=='&'){
                     current++;

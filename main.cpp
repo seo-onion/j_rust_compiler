@@ -64,7 +64,7 @@ int main(int argc, const char* argv[]) {
     }
     cout<<endl;
     cout<<"funciones: variables"<<endl;
-    for(auto [v,t] :tc.vars_per_funct){
+    for(auto [v,t] :tc.bytes_per_funct){
         cout<<v<<": "<<t<<endl;
     }
     GenCodeVisitor codigo(outfile);

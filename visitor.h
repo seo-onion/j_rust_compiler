@@ -44,6 +44,8 @@ public:
     virtual string visit(accesExp* exp) = 0;
     virtual string visit(AssignPStm* stm) =0;
     virtual string visit(BoolExp* stm) =0;
+    virtual string visit(lenExp* exp) =0;
+    virtual string visit(pushStm* stm) =0;
 
 };
 class Typechecker : public Visitor {
@@ -51,7 +53,7 @@ public:
     Program* p;
     int generar(Program* program);
     unordered_map<string, string> tipos;
-    unordered_map<string, int> vars_per_funct;
+    unordered_map<string, int> bytes_per_funct;
     int locales;
     string nombreFuncion;
     string visit(BinaryExp* exp) override;
@@ -63,7 +65,7 @@ public:
     string visit(WhileStm* stm) override;
     string visit(FcallStm* stm) override;
     string visit(BoolExp* stm) override;
-
+    string visit(lenExp* exp) override;
     string visit(IfStm* stm) override;
     string visit(Body* body) override;
     string visit(VarDec* vd) override;
@@ -74,6 +76,8 @@ public:
     string visit(arrExp* str) override;
     string visit(accesExp* exp) override;
     string visit(AssignPStm* stm) override;
+    string visit(pushStm* stm) override;
+
 
 
 
@@ -96,6 +100,8 @@ public:
     string visit(BoolExp* stm) override;
     string visit(BinaryExp* exp) override;
     string visit(NumberExp* exp) override;
+    string visit(lenExp* exp) override;
+
     string visit(IdExp* exp) override;
     string visit(Program* p) override ;
     string visit(PrintStm* stm) override;
@@ -112,6 +118,7 @@ public:
     string visit(arrExp* arr) override;
     string visit(accesExp* exp) override;
     string visit(AssignPStm* stm) override;
+    string visit(pushStm* stm) override;
 
 
 };

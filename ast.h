@@ -50,44 +50,44 @@ public:
 };
 class strExp:public Exp{
 public:
-
     string exp_type="strExp";
-
     string value;
     strExp(const string& v);
     ~strExp();
     string accept(Visitor* visitor);
     string type(){return exp_type;}
-
-
+};
+class lenExp:public Exp{
+public:
+    string exp_type="lenExp";
+    Exp* container;
+    lenExp(Exp* c):container(c){};
+    ~lenExp(){};
+    string accept(Visitor* visitor);
+    string type(){return exp_type;}
 };
 
 
 class arrExp:public Exp{
 public:
     string exp_type="arrExp";
-
     string tipo;
     list<Exp*> elements;
     arrExp(){};
     ~arrExp(){};
     string accept(Visitor* visitor);
     string type(){return exp_type;}
-
-
 };
 
 class accesExp:public Exp{
 public:
     string exp_type="accesExp";
-
     string variable;
     list<Exp*> indexes;
     accesExp(){};
     ~accesExp(){};
     string accept(Visitor* visitor);
     string type(){return exp_type;}
-
 };
 // Expresión numérica
 class NumberExp : public Exp {
@@ -201,7 +201,14 @@ public:
 };
 
 
-
+class pushStm: public Stm {
+public:
+    Exp* p;
+    Exp* vector;
+    pushStm(){};
+    ~pushStm(){};
+    string accept(Visitor* visitor);
+};
 
 
 
@@ -225,8 +232,7 @@ public:
 
 class FcallExp: public Exp {
 public:
-    string exp_type="IdExp";
-
+    string exp_type="FcallExp";
     string nombre;
     vector<Exp*> argumentos;
     string accept(Visitor* visitor);
