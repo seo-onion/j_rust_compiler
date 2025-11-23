@@ -1,0 +1,29 @@
+Scanner
+
+TOKEN(FUN, "fn")
+TOKEN(ID, "mostrarValor")
+TOKEN(LE, "<")
+TOKEN(ID, "T")
+TOKEN(GR, ">")
+TOKEN(LPAREN, "(")
+TOKEN(ID, "valor")
+TOKEN(DDOTS, ":")
+TOKEN(ID, "T")
+TOKEN(RPAREN, ")")
+
+TOKEN(ID, "T")
+TOKEN(RCBRACE, "{")
+TOKEN(ID, "println")
+TOKEN(EXCLAM, "!")
+TOKEN(LPAREN, "(")
+TOKEN(STRING, "Valor: {:?}")
+TOKEN(COMA, ",")
+TOKEN(ID, "valor")
+TOKEN(RPAREN, ")")
+TOKEN(SEMICOL, ";")
+TOKEN(ID, "valor")
+TOKEN(LCBRACE, "}")
+TOKEN(END)
+
+Scanner exitoso
+

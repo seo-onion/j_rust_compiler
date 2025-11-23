@@ -1,0 +1,4 @@
+fn mostrarValor<T>(valor: T) -> T {
+    println!("Valor: {:?}", valor);
+    valor
+}
