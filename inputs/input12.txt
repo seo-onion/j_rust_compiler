@@ -1,0 +1,13 @@
+fn signo(x: i64) -> i64 {
+    if x < 5 {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+fn main() {
+    print!("{}", signo(3));
+    print!("{}", signo(0));
+    print!("{}", signo(10));
+}

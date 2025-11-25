@@ -121,6 +121,20 @@ FunDec *Parser::parseFunDec()
     match(Token::FN);
     match(Token::ID);
     fd->nombre = previous->text;
+
+    if (check(Token::LE))
+    {
+        match(Token::LE);
+        match(Token::ID);
+        fd->typeParams.push_back(previous->text);
+        while (match(Token::COMA))
+        {
+            match(Token::ID);
+            fd->typeParams.push_back(previous->text);
+        }
+        match(Token::GR);
+    }
+
     match(Token::LPAREN);
     match(Token::MUT);
     if(check(Token::ID)) {
@@ -160,10 +174,13 @@ Body *Parser::parseBody()
             b->declarations.push_back(parseVarDec());
         }
     }
-    b->StmList.push_back(parseStm());
-    while (!check(Token::RCBRACE))
+    if (!check(Token::RCBRACE))
     {
         b->StmList.push_back(parseStm());
+        while (!check(Token::RCBRACE))
+        {
+            b->StmList.push_back(parseStm());
+        }
     }
     return b;
 }
@@ -182,11 +199,15 @@ Stm *Parser::parseStm()
         {
             FcallStm *f = new FcallStm();
             f->nombre = nom;
-            while (!match(Token::RPAREN))
+            if (!check(Token::RPAREN))
             {
                 f->argumentos.push_back(parseDE());
-
+                while (match(Token::COMA))
+                {
+                    f->argumentos.push_back(parseDE());
+                }
             }
+            match(Token::RPAREN);
             match(Token::SEMICOL);
             return f;
         }
@@ -301,7 +322,7 @@ Stm *Parser::parseStm()
     }
 
     else{
-        cout<<current->text;
+        cout << "Error en parseStm: token actual = '" << current->text << "'" << endl;
         throw runtime_error("Error sintáctico");
     }
     return a;
@@ -510,10 +531,13 @@ Exp *Parser::parseF()
             match(Token::LPAREN);
             FcallExp *fcall = new FcallExp();
             fcall->nombre = nom;
-            fcall->argumentos.push_back(parseDE());
-            while (match(Token::COMA))
+            if (!check(Token::RPAREN))
             {
                 fcall->argumentos.push_back(parseDE());
+                while (match(Token::COMA))
+                {
+                    fcall->argumentos.push_back(parseDE());
+                }
             }
             match(Token::RPAREN);
             return fcall;
@@ -559,7 +583,7 @@ Exp *Parser::parseF()
         }
     }
     else {
-        cout<<current->text;
+        cout << "Error en parseF: token actual = '" << current->text << "'" << endl;
         throw runtime_error("Error sintáctico");
     }
 }

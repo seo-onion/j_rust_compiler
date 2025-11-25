@@ -1,0 +1,21 @@
+fn xd() -> i64{
+    while (true && false) | true {
+        let a;
+        let b;
+        let c:i64;
+        a = 3;
+        b = 4;
+        if a < b {
+            let d:i64;
+            d = a + b;
+            print!("{}",d);
+            }
+        else{
+            print!("{}",a);
+        }
+        return 0;
+    }
+}
+fn main(){
+    xd();
+}

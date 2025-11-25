@@ -1,0 +1,9 @@
+fn suma(a: i64) -> i64 {
+    let b: i64;
+    b = 10;
+    return a + b;
+}
+
+fn main() {
+    print!("{}", suma(5));
+}

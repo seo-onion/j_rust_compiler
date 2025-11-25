@@ -41,8 +41,9 @@ int main(int argc, const char* argv[]) {
     Parser parser(&scanner1);
 
     // Parsear y generar AST
-
+    cout << "Iniciando parseo..." << endl;
     Program* program = parser.parseProgram();
+    cout << "Parseo exitoso!" << endl;
         string inputFile(argv[1]);
         size_t dotPos = inputFile.find_last_of('.');
         string baseName = (dotPos == string::npos) ? inputFile : inputFile.substr(0, dotPos);

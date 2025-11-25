@@ -1,0 +1,16 @@
+fn main(){
+    let  a,b;
+    a = 10;
+    b = 20;
+    if a < 30 {
+        let  b;
+        b = 1;
+        print(b);
+        }
+    else{
+        let  b;
+        b = 2;
+        print(b);
+        }
+    print(b);
+}

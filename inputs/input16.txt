@@ -1,0 +1,9 @@
+fn identidad<T>(x:T) -> T{
+    return x;
+}
+
+fn main(){
+    
+    print!("{}",identidad(42));
+    print!("{}",identidad("hola"));
+}

@@ -1,0 +1,13 @@
+fn primero<T>(a:T, b:T) -> T{
+    return a;
+}
+
+fn segundo<T>(a:T, b:T) -> T{
+    return b;
+}
+
+fn main(){
+    print!("{}", primero(10, 20));
+    print!("{}", primero(30, 40));
+    print!("{}", segundo(30, 40));
+}

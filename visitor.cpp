@@ -28,6 +28,7 @@ string accesExp::accept(Visitor* visitor) {
 string FcallStm::accept(Visitor* visitor) {
     return visitor->visit(this);
 }
+
 string arrExp::accept(Visitor* visitor) {
     return visitor->visit(this);
 }
@@ -83,6 +84,151 @@ string ReturnStm::accept(Visitor* visitor){
 }
 
 
+
+
+FunDec* Typechecker::buscarFuncion(string nombre) {
+    if (funciones.count(nombre) > 0) {
+        return funciones[nombre];
+    }
+    return nullptr;
+}
+
+//Si un parametro es genérico
+bool Typechecker::esGenerico(string tipo, vector<string>& typeParams) {
+    for (auto& param : typeParams) {
+        if (tipo == param) {
+            return true;  
+        }
+    }
+    return false;  
+}
+
+// Sustituye un tipo genérico por su tipo concreto
+  // Ejemplo: tipo="T", typeParams=["T"], typeArgs=["int"] -> retorna "int"
+string Typechecker::sustituirTipo(string tipo, vector<string>& typeParams, vector<string>& typeArgs) {
+    for (int i = 0; i < typeParams.size(); i++) {
+        if (tipo == typeParams[i]) {
+            return typeArgs[i];
+        }
+    }
+    return tipo;
+}
+
+string Typechecker::crearSignature(string nombre, vector<string>& typeArgs) {
+    string sig = nombre + "<";
+    for (int i = 0; i < typeArgs.size(); i++) {
+        sig += typeArgs[i];
+        if (i < typeArgs.size() - 1) {
+            sig += ",";
+        }
+    }
+    sig += ">";
+    return sig;
+}
+
+void Typechecker::inferirTiposStm(Stm* s) {
+    if (auto vd = dynamic_cast<VarDec*>(s)) {
+        visit(vd);
+    }
+    else if (auto as = dynamic_cast<AssignStm*>(s)) {
+        string tipoVar = tipos[as->id];
+        string tipoExp = inferirTiposExp(as->e);
+
+        if (tipoVar != tipoExp) {
+            throw runtime_error(
+                "Error: asignacion incompatible, variable " +
+                as->id + " es " + tipoVar + " pero la expresion es " + tipoExp
+            );
+        }
+    }
+    else if (auto ifs = dynamic_cast<IfStm*>(s)) {
+        string tipoCond = inferirTiposExp(ifs->condition);
+        if (tipoCond != "bool")
+            throw runtime_error("Error: la condicion del if debe ser bool");
+
+        ifs->then->accept(this);
+        if (ifs->els) {
+            ifs->els->accept(this);
+        }
+    }
+    else if (auto ws = dynamic_cast<WhileStm*>(s)) {
+        string tipoCond = inferirTiposExp(ws->condition);
+        if (tipoCond != "bool")
+            throw runtime_error("Error: la condicion del while debe ser bool");
+
+        ws->b->accept(this);
+    }
+    else if (auto ret = dynamic_cast<ReturnStm*>(s)) {
+        string tipoExp = inferirTiposExp(ret->e);
+        string tipoEsperado = tipos[nombreFuncion];
+
+        if (tipoExp != tipoEsperado) {
+            throw runtime_error(
+                "Error: return de tipo " + tipoExp +
+                ", pero la funcion requiere " + tipoEsperado
+            );
+        }
+    }
+    else {
+        s->accept(this);
+    }
+}
+
+string Typechecker::inferirTiposExp(Exp* e) {
+    if (auto num = dynamic_cast<NumberExp*>(e)) {
+        return "i64";
+    }
+    if (auto str = dynamic_cast<strExp*>(e)) {
+        return "str";
+    }
+    if (auto b = dynamic_cast<BoolExp*>(e)) {
+        return "bool";
+    }
+    if (auto id = dynamic_cast<IdExp*>(e)) {
+        if (!tipos.count(id->value))
+            throw runtime_error("Variable no definida: " + id->value);
+        return tipos[id->value];
+    }
+    if (auto bin = dynamic_cast<BinaryExp*>(e)) {
+        string l = inferirTiposExp(bin->left);
+        string r = inferirTiposExp(bin->right);
+
+        if (bin->op == PLUS_OP || bin->op == MINUS_OP || bin->op == MUL_OP || bin->op == DIV_OP) {
+            if (l != "i64" || r != "i64")
+                throw runtime_error("Operacion aritmetica requiere i64");
+            return "i64";
+        }
+
+        if (bin->op == LE_OP || bin->op == LEEQ_OP || bin->op == GR_OP || bin->op == GREQ_OP) {
+            if (l != r)
+                throw runtime_error("Comparacion entre tipos distintos: " + l + " y " + r);
+            return "bool";
+        }
+
+        if (bin->op == AND_op || bin->op == ORR_op) {
+            if (l != "bool" || r != "bool")
+                throw runtime_error("Operacion logica requiere bool");
+            return "bool";
+        }
+
+        throw runtime_error("Operador no soportado");
+    }
+    if (auto call = dynamic_cast<FcallExp*>(e)) {
+        return e->accept(this);
+    }
+    if (auto arr = dynamic_cast<arrExp*>(e)) {
+        return e->accept(this);
+    }
+    if (auto acc = dynamic_cast<accesExp*>(e)) {
+        return e->accept(this);
+    }
+    if (auto len = dynamic_cast<lenExp*>(e)) {
+        return "i64";
+    }
+
+    throw runtime_error("Expresion no reconocida en inferirTiposExp");
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 
 int GenCodeVisitor::generar(Program* program) {
@@ -106,8 +252,14 @@ string GenCodeVisitor::visit(Program* program) {
 
     out << ".text\n";
     for (auto dec : program->fdlist){
-        dec->accept(this);
+        if (!dec->isGeneric()) dec->accept(this);
     }
+
+    for (auto& [signature, inst] : tc->instancias) {
+    FunDec* fd = inst.first;
+    vector<string>& typeArgs = inst.second;
+    generarFuncionMonomorfizada(fd, typeArgs, signature);
+}
 
     out << ".section .note.GNU-stack,\"\",@progbits"<<endl;
     memoria.remove_level();
@@ -176,14 +328,6 @@ string GenCodeVisitor::visit(AssignPStm* stm) {
     return string{};
 }
 
-string Typechecker::visit(AssignPStm* stm){
-    string t1=stm->arr->accept(this);
-    string t2=stm->e->accept(this);
-    if(t1!=t2){
-        throw runtime_error("asignacion invalida de : "+stm->arr->variable );
-    }
-    return "void";
-}
 
 string GenCodeVisitor::visit(NumberExp* exp) {
     out << " movq $" << exp->value << ", %rax"<<endl;
@@ -511,55 +655,314 @@ string GenCodeVisitor::visit(FunDec* f) {
     memoria.remove_level();
     return string{};
 }
-
 string GenCodeVisitor::visit(FcallExp* exp) {
     vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
-    int size = exp->argumentos.size();
-    int j=0;
-    for (int i = 0; i < size; i++) {
-        string t=exp->argumentos[i]->accept(tc);
-        if(t=="bool" or t=="i64"){
-            exp->argumentos[i]->accept(this);
-            out << "mov %rax, " << argRegs[j] <<endl;
-            j++;
-        }
-        else{
-            exp->argumentos[i]->accept(this);
-            out << "mov %rcx, " << argRegs[j] <<endl;
-            out << "mov %rax, " << argRegs[j+1] <<endl;
-            j+=2;
+    int j = 0;
 
+    // Pasar argumentos a registros
+    for (int i = 0; i < exp->argumentos.size(); i++) {
+        string t = exp->argumentos[i]->accept(tc);
+        if (t == "bool" || t == "i64") {
+            exp->argumentos[i]->accept(this);
+            out << "mov %rax, " << argRegs[j] << endl;
+            j++;
+        } else {
+            exp->argumentos[i]->accept(this);
+            out << "mov %rcx, " << argRegs[j] << endl;
+            out << "mov %rax, " << argRegs[j+1] << endl;
+            j += 2;
         }
     }
-    out << "call " << exp->nombre << endl;
+
+    // Determinar nombre de función a llamar
+    FunDec* fd = nullptr;
+    for (FunDec* fun : tc->p->fdlist) {
+        if (exp->nombre == fun->nombre)
+            fd = fun;
+    }
+
+    string nombreLlamada = exp->nombre;
+
+    if (fd && fd->isGeneric()) {
+        // Es genérica: inferir tipos de argumentos
+        vector<string> typeArgs;
+        for (auto arg : exp->argumentos) {
+            string tipoArg = tc->inferirTiposExp(arg);
+            typeArgs.push_back(tipoArg);
+        }
+        nombreLlamada = crearNombreMonomorfizado(exp->nombre, typeArgs);
+    }
+
+    out << "call " << nombreLlamada << endl;
     return string{};
 }
+
 string GenCodeVisitor::visit(FcallStm* stm) {
     vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
-    int size = stm->argumentos.size();
-    int j=0;
-    for (int i = 0; i < size; i++) {
-        string t=stm->argumentos[i]->accept(tc);
-        if(t=="bool" or t=="i64"){
+    int j = 0;
+
+    // Pasar argumentos a registros
+    for (int i = 0; i < stm->argumentos.size(); i++) {
+        string t = stm->argumentos[i]->accept(tc);
+        if (t == "bool" || t == "i64") {
             stm->argumentos[i]->accept(this);
-            out << "mov %rax, " << argRegs[j] <<endl;
+            out << "mov %rax, " << argRegs[j] << endl;
             j++;
-        }
-        else{
+        } else {
             stm->argumentos[i]->accept(this);
-            out << "mov %rcx, " << argRegs[j] <<endl;
-            out << "mov %rax, " << argRegs[j+1] <<endl;
-            j+=2;
+            out << "mov %rcx, " << argRegs[j] << endl;
+            out << "mov %rax, " << argRegs[j+1] << endl;
+            j += 2;
         }
     }
-    out << "call " << stm->nombre << endl;
+
+    // Determinar nombre de función a llamar
+    FunDec* fd = nullptr;
+    for (FunDec* fun : tc->p->fdlist) {
+        if (stm->nombre == fun->nombre)
+            fd = fun;
+    }
+
+    string nombreLlamada = stm->nombre;
+
+    if (fd && fd->isGeneric()) {
+        // Es genérica: inferir tipos de argumentos
+        vector<string> typeArgs;
+        for (auto arg : stm->argumentos) {
+            string tipoArg = tc->inferirTiposExp(arg);
+            typeArgs.push_back(tipoArg);
+        }
+        nombreLlamada = crearNombreMonomorfizado(stm->nombre, typeArgs);
+    }
+
+    out << "call " << nombreLlamada << endl;
     return string{};
 }
+
+
+string GenCodeVisitor::crearNombreMonomorfizado(string nombre, vector<string>& typeArgs) {
+    string result = nombre;
+    for (auto& tipo : typeArgs) {
+        result += "_" + tipo;
+    }
+    return result;
+}
+
+void GenCodeVisitor::generarFuncionMonomorfizada(FunDec* fd, vector<string>& typeArgs, string signature) {
+    // Guardar estado actual
+    bool entornoOriginal = entornoFuncion;
+    string nombreOriginal = nombreFuncion;
+    int offsetOriginal = offset;
+
+    entornoFuncion = true;
+    memoria.clear();
+    memoria.add_level();
+    offset = -8;
+
+    // Crear nombre monomorfizado: max<i64> → max_i64
+    string nombreMono = crearNombreMonomorfizado(fd->nombre, typeArgs);
+    nombreFuncion = nombreMono;
+
+    vector<std::string> argRegs = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
+
+    // Prólogo de la función
+    out << ".globl " << nombreMono << endl;
+    out << nombreMono << ":" << endl;
+    out << "pushq %rbp" << endl;
+    out << "movq %rsp, %rbp" << endl;
+    out << "subq $" << tc->bytes_per_funct[signature] << ", %rsp" << endl;
+
+    // Procesar parámetros con tipos sustituidos
+    int regIndex = 0;
+    for (int i = 0; i < fd->Pnombres.size(); i++) {
+        // Sustituir T → i64, U → bool, etc.
+        string tipoConcreto = tc->sustituirTipo(fd->Ptipos[i], fd->typeParams, typeArgs);
+
+        if (tipoConcreto == "bool" || tipoConcreto == "i64") {
+            // Tipo simple (8 bytes)
+            out << "movq " << argRegs[regIndex] << "," << offset << "(%rbp)" << endl;
+            memoria.add_var(fd->Pnombres[i], offset);
+            offset -= 8;
+            regIndex++;
+        } else {
+            // Tipo complejo (16 bytes: puntero + tamaño)
+            out << "movq " << argRegs[regIndex] << "," << offset << "(%rbp)" << endl;
+            offset -= 8;
+            memoria.add_var(fd->Pnombres[i], offset);
+            out << "movq " << argRegs[regIndex + 1] << "," << offset << "(%rbp)" << endl;
+            offset -= 8;
+            regIndex += 2;
+        }
+    }
+
+    // Procesar declaraciones locales
+    for (auto decl : fd->cuerpo->declarations) {
+        decl->accept(this);
+    }
+
+    // Procesar statements del cuerpo
+    for (auto stmt : fd->cuerpo->StmList) {
+        stmt->accept(this);
+    }
+
+    // Epílogo de la función
+    out << ".end_" << nombreMono << ":" << endl;
+    out << "leave" << endl;
+    out << "ret" << endl;
+
+    // Restaurar estado
+    entornoFuncion = entornoOriginal;
+    nombreFuncion = nombreOriginal;
+    offset = offsetOriginal;
+    memoria.remove_level();
+}
+
+
+//?  <--------------------- TYPECHECKER --------------------->  
+
 int Typechecker::generar(Program *program) {
     p=program;
     program->accept(this);
 
     return 0;
+}
+
+string Typechecker::visit(Program *program) {
+    for (auto fd : p->fdlist) {
+          // Puse esto para que no se dupliquen las funciones, capaz ya se maneja de otra forma, luego pregunto
+        if (funciones.count(fd->nombre) > 0) {
+            cout << "Error: función duplicada: " << fd->nombre << endl;
+            exit(1);
+        }
+        funciones[fd->nombre] = fd;
+    }
+
+    for(auto& vd: program->vdlist){
+        vd->accept(this);
+    }
+    for(auto& vd: program->fdlist){
+        //SOlo pasamos funciones no genericas
+        if(!vd->isGeneric()){
+            cout << vd->nombre << endl;
+            vd->accept(this);
+        }
+    }
+    return "void";
+}
+
+string Typechecker::visit(VarDec *vd) {
+    int s;
+    if(vd->type=="undefined") {
+        s=0;
+    }else if(vd->type=="bool" or vd->type=="i64"){
+        s=8;
+    }else {
+        s=16;
+    }
+    locales += vd->vars.size()*s;
+    for(const string& v:vd->vars){
+        tipos[v]=vd->type;
+    }
+    return "void";
+}
+
+string Typechecker::visit(FunDec *fd) {
+    int parametros=0;
+    int i=0;
+    for (string t: fd->Ptipos){
+        if(t=="bool" or t=="i64")
+            parametros+=8;
+        else
+            parametros += 16;
+        tipos[fd->Pnombres[i]]=t;
+        i+=1;
+
+    }
+    tipos[fd->nombre]=fd->tipo;
+    nombreFuncion=fd->nombre;
+    locales = 0;
+    fd->cuerpo->accept(this);
+    bytes_per_funct[fd->nombre] = parametros + locales;
+    return fd->tipo;
+}
+
+string Typechecker::visit(Body *body) {
+    for(auto& vd: body->declarations){
+        vd->accept(this);
+    }
+    for(auto& stm: body->StmList){  //en un body si es que hay return debe estar al ultimo
+        stm->accept(this);
+    }
+
+    return "void";
+}
+
+string Typechecker::visit(WhileStm *stm) {
+    stm->condition->accept(this);
+    stm->b->accept(this);
+    return "void";
+}
+
+string Typechecker::visit(IfStm *stm) {
+    int a = locales;
+    stm-> then -> accept(this);
+    int b = locales;
+    if(stm->els)
+        stm-> els  -> accept(this);
+    int c = locales;
+    locales = a + max(b-a,c-b);
+
+    return "void";
+}
+
+string Typechecker::visit(PrintStm *stm) {
+    return "void";
+}
+
+string Typechecker::visit(AssignStm *stm) {
+    if(tipos[stm->id]=="undefined"){
+        string t=stm->e->accept(this);
+        tipos[stm->id]=t;
+        if(t=="i64" or t=="bool")
+            locales+=8;
+        else
+            locales+=16;
+
+    }
+    else if(tipos[stm->id]!= stm->e->accept(this))
+        throw runtime_error("Tipo invalido para la variable: "+stm->id);
+
+    return "void";
+}
+
+
+string Typechecker::visit(ReturnStm *r) {
+    string ret=r->e->accept(this);
+    if(ret!=tipos[nombreFuncion]){
+    throw runtime_error("Tipo de retorno invalid para la funcion: "+nombreFuncion);
+    }
+    return ret;
+}
+
+string Typechecker::visit(AssignPStm* stm){
+    string t1=stm->arr->accept(this);
+    string t2=stm->e->accept(this);
+    if(t1!=t2){
+        throw runtime_error("asignacion invalida de : "+stm->arr->variable );
+    }
+    return "void";
+}
+
+string Typechecker::visit(pushStm *stm) {
+    string vt=stm->vector->accept(this);
+    string t=stm->p->accept(this);
+
+    if(vt.size()<=5 or vt.substr(4,vt.size()-5)!=t){
+        //cout<<vt.substr(4,vt.size()-5)<<"  ---  "<<t<<endl;
+        throw runtime_error("La expresion a pushear debe ser del tipo adecuado");
+    }
+    return "void";
+
 }
 
 string Typechecker::visit(BinaryExp *exp) {
@@ -594,6 +997,10 @@ string Typechecker::visit(NumberExp *exp) {
     return "i64";
 }
 
+string Typechecker::visit(IdExp *exp) {
+    return tipos[exp->value];
+}
+
 string Typechecker::visit(arrExp *exp) {
     exp->tipo=exp->elements.front()->accept(this);
     for(Exp* e:exp->elements){
@@ -603,184 +1010,13 @@ string Typechecker::visit(arrExp *exp) {
     }
     return "Vec<"+exp->tipo+">";
 }
-string Typechecker::visit(Program *program) {
 
-    for(auto& vd: program->vdlist){
-        vd->accept(this);
-    }
-    for(auto& vd: program->fdlist){
-        vd->accept(this);
-    }
-    return "void";
-}
-string Typechecker::visit(IdExp *exp) {
-    return tipos[exp->value];
-}
-
-
-string Typechecker::visit(PrintStm *stm) {
-    return "void";
-}
-
-string Typechecker::visit(AssignStm *stm) {
-    if(tipos[stm->id]=="undefined"){
-        string t=stm->e->accept(this);
-        tipos[stm->id]=t;
-        if(t=="i64" or t=="bool")
-            locales+=8;
-        else
-            locales+=16;
-
-    }
-    else if(tipos[stm->id]!= stm->e->accept(this))
-        throw runtime_error("Tipo invalido para la variable: "+stm->id);
-
-    return "void";
-}
-
-string Typechecker::visit(WhileStm *stm) {
-    stm->condition->accept(this);
-    stm->b->accept(this);
-    return "void";
-}
-
-string Typechecker::visit(IfStm *stm) {
-    int a = locales;
-    stm-> then -> accept(this);
-    int b = locales;
-    if(stm->els)
-        stm-> els  -> accept(this);
-    int c = locales;
-    locales = a + max(b-a,c-b);
-
-
-    return "void";
-}
-
-string Typechecker::visit(Body *body) {
-    for(auto& vd: body->declarations){
-        vd->accept(this);
-    }
-    for(auto& stm: body->StmList){  //en un body si es que hay return debe estar al ultimo
-        stm->accept(this);
-    }
-
-    return "void";
-}
-
-string Typechecker::visit(VarDec *vd) {
-    int s;
-    if(vd->type=="undefined") {
-        s=0;
-    }else if(vd->type=="bool" or vd->type=="i64"){
-        s=8;
-    }else {
-        s=16;
-    }
-    locales += vd->vars.size()*s;
-    for(const string& v:vd->vars){
-        tipos[v]=vd->type;
-    }
-    return "void";
-}
-
-string Typechecker::visit(FcallExp *fcall) {
-    FunDec* f=nullptr;
-    for(FunDec* fun:p->fdlist){
-        if(fcall->nombre==fun->nombre)
-            f=fun;
-    }
-    if(!f)
-        throw runtime_error("Nombre equivocado de funcion: "+fcall->nombre);
-
-    if(f->Ptipos.size()!=fcall->argumentos.size())
-        throw runtime_error("Numero equivocado de argumentos para la funcion: "+fcall->nombre);
-    string t;
-    for(int i=0;i<fcall->argumentos.size();i++){
-        t=fcall->argumentos[i]->accept(this);
-        if( t!= f->Ptipos[i]){
-            throw runtime_error("Tipo invalido en la llamada de funcion: "+fcall->nombre);
-
-        }
-    }
-    return tipos[fcall->nombre];
-}
-
-string Typechecker::visit(FcallStm *fcall) {
-    FunDec* f=nullptr;
-    for(FunDec* fun:p->fdlist){
-        if(fcall->nombre==fun->nombre)
-            f=fun;
-    }
-    if(!f)
-        throw runtime_error("Nombre equivocado de funcion: "+fcall->nombre);
-
-    if(f->Ptipos.size()!=fcall->argumentos.size())
-        throw runtime_error("Numero equivocado de argumentos para la funcion: "+fcall->nombre);
-    string t;
-    for(int i=0;i<fcall->argumentos.size();i++){
-        t=fcall->argumentos[i]->accept(this);
-        if( t!= f->Ptipos[i]){
-            cout<<t<<"  -  "<<f->Ptipos[i];
-
-            throw runtime_error("Tipo invalido en la llamada de funcion: "+fcall->nombre);
-
-        }
-    }
-    return "void";
-}
-string Typechecker::visit(ReturnStm *r) {
-     string ret=r->e->accept(this);
-     if(ret!=tipos[nombreFuncion]){
-         throw runtime_error("Tipo de retorno invalid para la funcion: "+nombreFuncion);
-     }
-     return ret;
-}
-
-string Typechecker::visit(FunDec *fd) {
-    int parametros=0;
-    int i=0;
-    for (string t: fd->Ptipos){
-        if(t=="bool" or t=="i64")
-            parametros+=8;
-        else
-            parametros += 16;
-        tipos[fd->Pnombres[i]]=t;
-        i+=1;
-
-    }
-    tipos[fd->nombre]=fd->tipo;
-    nombreFuncion=fd->nombre;
-    locales = 0;
-    fd->cuerpo->accept(this);
-    bytes_per_funct[fd->nombre] = parametros + locales;
-    return fd->tipo;
-}
 string Typechecker::visit(lenExp* exp) {
     string t=exp->container->accept(this);
     if(t=="bool" or t=="i64")
         throw runtime_error(".len() se debe usar en un vector o string");
     return "i64";
 }
-string Typechecker::visit(strExp *str) {
-    return "str";
-}
-string Typechecker::visit(BoolExp *str) {
-    return "bool";
-}
-string Typechecker::visit(pushStm *stm) {
-    string vt=stm->vector->accept(this);
-    string t=stm->p->accept(this);
-
-    if(vt.size()<=5 or vt.substr(4,vt.size()-5)!=t){
-        //cout<<vt.substr(4,vt.size()-5)<<"  ---  "<<t<<endl;
-        throw runtime_error("La expresion a pushear debe ser del tipo adecuado");
-    }
-    return "void";
-
-}
-
-
 
 string Typechecker::visit(accesExp* exp){
     int cont=0;
@@ -805,3 +1041,142 @@ string Typechecker::visit(accesExp* exp){
     return type;
 
 }
+
+string Typechecker::visit(strExp *str) {
+    return "str";
+}
+
+string Typechecker::visit(BoolExp *str) {
+    return "bool";
+}
+
+
+
+string Typechecker::visit(FcallExp *fcall) {
+    FunDec* f=nullptr;
+    
+    for(FunDec* fun:p->fdlist){
+        if(fcall->nombre==fun->nombre)
+            f=fun;
+    }
+
+    if(!f)
+        throw runtime_error("Nombre equivocado de funcion: "+fcall->nombre);
+
+    if(f->Ptipos.size()!=fcall->argumentos.size())
+        throw runtime_error("Numero equivocado de argumentos para la funcion: "+fcall->nombre);
+
+    if (f->isGeneric()){
+
+        vector<string> typeArgs;
+        for (auto arg : fcall->argumentos) {
+            string tipoArg = inferirTiposExp(arg);
+            typeArgs.push_back(tipoArg);
+        }
+        string signature = crearSignature(fcall->nombre, typeArgs);
+
+        if (instancias.count(signature) == 0) {
+                instancias[signature] = {f, typeArgs};
+                visitGenericFunction(f, typeArgs);
+        }
+
+        return sustituirTipo(f->tipo, f->typeParams, typeArgs);
+    }
+
+
+    string t;
+
+    for(int i=0;i<fcall->argumentos.size();i++){
+        t=fcall->argumentos[i]->accept(this);
+        if( t!= f->Ptipos[i]){
+            throw runtime_error("Tipo invalido en la llamada de funcion: "+fcall->nombre);
+
+        }
+    }
+    return tipos[fcall->nombre];
+}
+
+string Typechecker::visit(FcallStm *fcall) {
+    FunDec* f=nullptr;
+    
+    for(FunDec* fun:p->fdlist){
+        if(fcall->nombre==fun->nombre)
+            f=fun;
+    }
+
+    if(!f)
+        throw runtime_error("Nombre equivocado de funcion: "+fcall->nombre);
+
+    if(f->Ptipos.size()!=fcall->argumentos.size())
+        throw runtime_error("Numero equivocado de argumentos para la funcion: "+fcall->nombre);
+
+    if (f->isGeneric()){
+
+        vector<string> typeArgs;
+        for (auto arg : fcall->argumentos) {
+            string tipoArg = inferirTiposExp(arg);
+            typeArgs.push_back(tipoArg);
+        }
+        string signature = crearSignature(fcall->nombre, typeArgs);
+
+        if (instancias.count(signature) == 0) {
+                instancias[signature] = {f, typeArgs};
+                visitGenericFunction(f, typeArgs);
+        }
+
+        return "void";
+    }
+
+
+    string t;
+    for(int i=0;i<fcall->argumentos.size();i++){
+        t=fcall->argumentos[i]->accept(this);
+        if( t!= f->Ptipos[i]){
+            cout<<t<<"  -  "<<f->Ptipos[i];
+
+            throw runtime_error("Tipo invalido en la llamada de funcion: "+fcall->nombre);
+
+        }
+    }
+    return "void";
+}
+
+void Typechecker::visitGenericFunction(FunDec* fd, vector<string>& typeArgs) {
+    string nombreOriginal = nombreFuncion;
+    int localesOriginal = locales;
+    unordered_map<string, string> tiposBackup = tipos;
+
+    string signature = crearSignature(fd->nombre, typeArgs);
+    nombreFuncion = signature;
+    locales = 0;
+
+    int parametros = 0;
+    for (int i = 0; i < fd->Pnombres.size(); i++) {
+        string tipoConcreto = sustituirTipo(fd->Ptipos[i], fd->typeParams, typeArgs);
+        tipos[fd->Pnombres[i]] = tipoConcreto;
+
+        if (tipoConcreto == "bool" || tipoConcreto == "i64")
+            parametros += 8;
+        else
+            parametros += 16;
+    }
+
+    string tipoRetorno = sustituirTipo(fd->tipo, fd->typeParams, typeArgs);
+    tipos[signature] = tipoRetorno;
+
+
+    fd->cuerpo->accept(this);
+
+    bytes_per_funct[signature] = parametros + locales;
+
+    nombreFuncion = nombreOriginal;
+    locales = localesOriginal;
+    tipos = tiposBackup;
+}
+
+
+//   - FcallExp es una expresión: se usa en contextos donde se espera un valor (asignaciones, operaciones, etc.)
+//   let x = suma(2, 3);  // FcallExp - necesita tipo de retorno
+//   - FcallStm es un statement: es una llamada a función como sentencia independiente
+//   imprime(5);  // FcallStm - no se usa su valor de retorno
+

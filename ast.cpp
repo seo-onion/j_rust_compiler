@@ -69,9 +69,6 @@ AssignStm::AssignStm(string variable,Exp* expresion){
 
 
 
-VarDec::VarDec() {}
-
-VarDec::~VarDec() {}
 
 Body::Body(){
     declarations=list<VarDec*>();
@@ -81,4 +78,7 @@ Body::Body(){
 Body::~Body(){}
 
 
+VarDec::VarDec() {}
+
+VarDec::~VarDec() {}
 

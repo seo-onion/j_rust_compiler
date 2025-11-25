@@ -1,0 +1,13 @@
+fn esMayor<T>(a:T, b:T) -> i64{
+    return a;
+}
+
+fn esMayor<T>(a:T, b:T) -> i64{
+    return a;
+}
+
+
+fn main(){
+    esMayor(1,2);
+
+}
