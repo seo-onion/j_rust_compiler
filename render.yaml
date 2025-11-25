@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: rust-compiler-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: COMPILER_PATH
+        value: /app/compiler

@@ -1,10 +1,12 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstdlib>
 #include "scanner.h"
 #include "parser.h"
 #include "ast.h"
 #include "visitor.h"
+#include "ast_to_dot.h"
 
 using namespace std;
 
@@ -44,15 +46,41 @@ int main(int argc, const char* argv[]) {
     cout << "Iniciando parseo..." << endl;
     Program* program = parser.parseProgram();
     cout << "Parseo exitoso!" << endl;
-        string inputFile(argv[1]);
-        size_t dotPos = inputFile.find_last_of('.');
-        string baseName = (dotPos == string::npos) ? inputFile : inputFile.substr(0, dotPos);
-        string outputFilename = baseName + ".s";
-        ofstream outfile(outputFilename);
-        if (!outfile.is_open()) {
-            cerr << "Error al crear el archivo de salida: " << outputFilename << endl;
-            return 1;
+
+    // Obtener nombre base del archivo
+    string inputFile(argv[1]);
+    size_t dotPos = inputFile.find_last_of('.');
+    string baseName = (dotPos == string::npos) ? inputFile : inputFile.substr(0, dotPos);
+
+    // 1. Generar archivo AST en formato DOT
+    string dotFilename = baseName + ".dot";
+    ofstream dotfile(dotFilename);
+    if (dotfile.is_open()) {
+        cout << "Generando AST en formato DOT: " << dotFilename << endl;
+        ASTtoDOT dotGen(dotfile);
+        dotGen.generate(program);
+        dotfile.close();
+
+        // Generar PNG desde DOT usando graphviz
+        string pngFilename = baseName + ".png";
+        string dotCommand = "dot -Tpng " + dotFilename + " -o " + pngFilename;
+        int result = system(dotCommand.c_str());
+        if (result == 0) {
+            cout << "AST PNG generado: " << pngFilename << endl;
+        } else {
+            cerr << "Advertencia: No se pudo generar PNG (¿graphviz instalado?)" << endl;
         }
+    } else {
+        cerr << "Error al crear archivo DOT" << endl;
+    }
+
+    // 2. Generar archivo de ensamblador
+    string outputFilename = baseName + ".s";
+    ofstream outfile(outputFilename);
+    if (!outfile.is_open()) {
+        cerr << "Error al crear el archivo de salida: " << outputFilename << endl;
+        return 1;
+    }
 
     cout << "Generando codigo ensamblador en " << outputFilename << endl;
     Typechecker tc;
@@ -73,5 +101,6 @@ int main(int argc, const char* argv[]) {
     codigo.generar(program);
     outfile.close();
 
+    cout << "Compilacion completada exitosamente!" << endl;
     return 0;
 }

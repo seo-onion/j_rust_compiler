@@ -463,9 +463,9 @@ string GenCodeVisitor::visit(WhileStm* stm) {
     if(stm->condition->type()=="BoolExp"){
         if(((BoolExp*)stm->condition)->value){
             out << "# Se compila directamente el cuerpo del while porque la consicion siempre es verdadera"<<endl;
-            out << "while_" << label << ":"<<endl;
+            out << label << ":"<<endl;
             stm->b->accept(this);
-            out << "while_" << label << ":"<<endl;
+            out << label << ":"<<endl;
         }
         else
             out << "# no se compila elbody del while porque la condicion siempre es falsa"<<endl;

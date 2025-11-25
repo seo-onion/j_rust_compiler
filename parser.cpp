@@ -495,7 +495,7 @@ Exp *Parser::parseF()
     {
         return new NumberExp(stoi(previous->text));
     }
-    else if (match(Token::VEC)) {// paresar el array
+    else if (match(Token::VEC)) {// paresar el array con vec!
         arrExp* arr=new arrExp();
         match(Token::EXCLAM);
         match(Token::LBRACE);
@@ -503,6 +503,17 @@ Exp *Parser::parseF()
             arr->elements.push_back(parseDE());
             match(Token::COMA);
         }
+        return arr;
+    }
+    else if (match(Token::LBRACE)) {// parsear array literal [...]
+        arrExp* arr=new arrExp();
+        if(!check(Token::RBRACE)){
+            arr->elements.push_back(parseDE());
+            while(match(Token::COMA)){
+                arr->elements.push_back(parseDE());
+            }
+        }
+        match(Token::RBRACE);
         return arr;
     }
     else if (match(Token::STRING))
@@ -524,7 +535,7 @@ Exp *Parser::parseF()
         return e;
     }
     else if (match(Token::ID))
-    {    
+    {
         nom = previous->text;
         if (check(Token::LPAREN))
         {
