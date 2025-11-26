@@ -1,0 +1,15 @@
+[Unit]
+Description=Rust Compiler API Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/j_rust_compiler/backend
+Environment="PATH=/root/j_rust_compiler/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/root/j_rust_compiler/backend/venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
