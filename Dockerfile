@@ -30,7 +30,7 @@ RUN rm -f *.o compiler || true
 RUN make
 
 # Verificar compilación
-RUN ls -la compiler && file compiler
+RUN ls -la compiler
 
 COPY backend/ ./backend/
 
