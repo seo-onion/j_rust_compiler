@@ -1,16 +1,14 @@
-fn main(){
-    let  a,b;
-    a = 10;
-    b = 20;
-    if a < 30 {
-        let  b;
-        b = 1;
-        print(b);
-        }
-    else{
-        let  b;
-        b = 2;
-        print(b);
-        }
-    print(b);
+fn P(v:Vec<i64>){
+    let i;
+    i=0;
+    while i<v.len(){
+        print!("{}",v[i]);
+        i=i+1;
+    }
+}
+fn main() {
+    let x,y;
+    x=vec![1,2,3,4,5,6,7,8,9];
+    P(x.clone());
+
 }

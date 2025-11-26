@@ -187,9 +187,30 @@ async def run_program(compilation_id: str):
     binary_file = temp_path / "output"
 
     try:
-        # Compilar .s con GCC (sin preprocesamiento)
+        # Preprocesar archivo .s para eliminar etiquetas duplicadas (optimización)
+        with open(asm_file, 'r') as f:
+            lines = f.readlines()
+
+        seen_labels = set()
+        processed_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Si es una etiqueta while_X: duplicada, convertirla en comentario
+            if stripped.endswith(':') and stripped.startswith('while_'):
+                if stripped in seen_labels:
+                    # Etiqueta duplicada - es la optimización, comentarla
+                    processed_lines.append('# ' + line)
+                    continue
+                seen_labels.add(stripped)
+            processed_lines.append(line)
+
+        # Guardar archivo procesado
+        with open(asm_file, 'w') as f:
+            f.writelines(processed_lines)
+
+        # Compilar .s con GCC
         compile_result = subprocess.run(
-            ["gcc", "-x", "assembler", str(asm_file), "-o", str(binary_file), "-no-pie", "-static"],
+            ["gcc", str(asm_file), "-o", str(binary_file), "-no-pie"],
             capture_output=True,
             text=True,
             timeout=15
