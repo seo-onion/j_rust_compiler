@@ -16,12 +16,21 @@ WORKDIR /app
 COPY backend/requirements.txt ./backend/
 RUN pip3 install --no-cache-dir -r backend/requirements.txt
 
+# Romper cache de Docker en este punto para forzar COPY fresco
+ARG CACHEBUST=1
+RUN echo "Cache bust: $CACHEBUST"
+
 COPY *.cpp *.h ./
 COPY Makefile ./
 
-# Forzar recompilación de parser.cpp
-RUN touch parser.cpp
+# Limpiar cualquier archivo .o que pudiera existir
+RUN rm -f *.o compiler || true
+
+# Compilar desde cero
 RUN make
+
+# Verificar compilación
+RUN ls -la compiler && file compiler
 
 COPY backend/ ./backend/
 
