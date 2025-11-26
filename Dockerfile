@@ -19,6 +19,8 @@ RUN pip3 install --no-cache-dir -r backend/requirements.txt
 COPY *.cpp *.h ./
 COPY Makefile ./
 
+# Forzar recompilación de parser.cpp
+RUN touch parser.cpp
 RUN make
 
 COPY backend/ ./backend/
