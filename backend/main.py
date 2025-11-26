@@ -208,9 +208,9 @@ async def run_program(compilation_id: str):
         with open(asm_file, 'w') as f:
             f.writelines(processed_lines)
 
-        # Compilar .s con GCC con flags más compatibles
+        # Compilar .s con GCC - intentar estático
         compile_result = subprocess.run(
-            ["gcc", str(asm_file), "-o", str(binary_file), "-no-pie", "-fno-stack-protector", "-z", "execstack"],
+            ["gcc", str(asm_file), "-o", str(binary_file), "-static", "-fno-stack-protector"],
             capture_output=True,
             text=True,
             timeout=15
