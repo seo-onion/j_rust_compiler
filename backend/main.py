@@ -226,13 +226,20 @@ async def run_program(compilation_id: str):
                 }
             )
 
-        # Ejecutar binario directamente (sin shell wrapper que puede causar problemas)
+        # Dar permisos de ejecución explícitos
+        os.chmod(binary_file, 0o755)
+
+        # Ejecutar binario con configuración de entorno más permisiva
         run_result = subprocess.run(
             [str(binary_file)],
             capture_output=True,
             text=True,
             timeout=10,
-            env={"LD_LIBRARY_PATH": "/lib:/usr/lib"}
+            cwd=str(temp_path),
+            env={
+                "PATH": "/usr/bin:/bin",
+                "HOME": "/tmp",
+            }
         )
 
         # Si hay segfault, agregar info adicional

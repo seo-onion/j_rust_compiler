@@ -41,6 +41,9 @@ COPY backend/ ./backend/
 
 WORKDIR /app/backend
 
+# Configurar límites del sistema para evitar problemas de ejecución
+RUN mkdir -p /tmp && chmod 1777 /tmp
+
 EXPOSE 8000
 
 CMD ["python3", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
