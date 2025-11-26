@@ -5,10 +5,30 @@ import './App.css';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const DEFAULT_CODE = `fn main() {
-    let x: int = 10;
-    let y: int = 20;
-    let result: int = x + y;
-    print(result);
+    let (a,i,s,j);
+    s="pepito";
+    a=[["aaa","bbb","ccc"],["gloria","andre",s]];
+    s="juancito";
+    a=[["aaa","bbb","ccc"],["gloria","andre",s],["1","2","3"]];
+    a[0][0]="xddddddd";
+    j=0;
+    i=0;
+    while i<3 {
+      j=0;
+      while j<3{
+            print!("{}",a[i][j]);
+            j=j+1;
+      }
+      i=i+1;
+    }
+    a[0]=["e","f","g"];
+    i=0;
+    while i<3{
+        print!("{}",a[0][i]);
+        i=i+1;
+    }
+}
+
 }`;
 
 function App() {
