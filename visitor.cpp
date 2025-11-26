@@ -882,7 +882,11 @@ string Typechecker::visit(FunDec *fd) {
     nombreFuncion=fd->nombre;
     locales = 0;
     fd->cuerpo->accept(this);
-    bytes_per_funct[fd->nombre] = parametros + locales;
+    int total = parametros + locales;
+    if (total % 16 != 0) {
+    total += (16 - (total % 16));
+    }
+    bytes_per_funct[fd->nombre] = total;
     return fd->tipo;
 }
 
@@ -1167,7 +1171,11 @@ void Typechecker::visitGenericFunction(FunDec* fd, vector<string>& typeArgs) {
 
     fd->cuerpo->accept(this);
 
-    bytes_per_funct[fd->nombre] = parametros + locales;
+      int total = parametros + locales;
+        if (total % 16 != 0) {
+            total += (16 - (total % 16));
+        }
+        bytes_per_funct[fd->nombre] = total;
 
     nombreFuncion = nombreOriginal;
     locales = localesOriginal;
