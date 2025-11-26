@@ -208,9 +208,9 @@ async def run_program(compilation_id: str):
         with open(asm_file, 'w') as f:
             f.writelines(processed_lines)
 
-        # Compilar .s con GCC
+        # Compilar .s con GCC con flags más compatibles
         compile_result = subprocess.run(
-            ["gcc", str(asm_file), "-o", str(binary_file), "-no-pie"],
+            ["gcc", str(asm_file), "-o", str(binary_file), "-no-pie", "-fno-stack-protector", "-z", "execstack"],
             capture_output=True,
             text=True,
             timeout=15
@@ -226,12 +226,13 @@ async def run_program(compilation_id: str):
                 }
             )
 
-        # Ejecutar binario con ulimit aumentado
+        # Ejecutar binario directamente (sin shell wrapper que puede causar problemas)
         run_result = subprocess.run(
-            ["sh", "-c", f"ulimit -s unlimited && {binary_file}"],
+            [str(binary_file)],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
+            env={"LD_LIBRARY_PATH": "/lib:/usr/lib"}
         )
 
         # Si hay segfault, agregar info adicional
