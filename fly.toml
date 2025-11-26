@@ -1,28 +1,22 @@
-# Configuración de Fly.io para Rust Compiler API
+# fly.toml app configuration file generated for proyecto-compis on 2025-11-26T02:41:00-05:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "rust-compiler-api"
-primary_region = "mia"  # Miami - cambia según tu ubicación
+app = 'proyecto-compis'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
-
-[env]
-  COMPILER_PATH = "/app/compiler"
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
+  processes = ['app']
 
-[[http_service.checks]]
-  interval = "30s"
-  timeout = "5s"
-  grace_period = "10s"
-  method = "GET"
-  path = "/health"
-
-[mounts]
-  source = "compiler_data"
-  destination = "/app/backend/temp_compilations"
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
