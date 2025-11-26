@@ -75,9 +75,16 @@ Token* Scanner::nextToken() {
         else if (lexema=="clone") return new Token(Token::CLONE, input, first, current - first);
 
         else if (lexema=="Vec" and input[current]=='<' ) {
-            //cout<<"aaaaaaaaaa"<<endl;
-            while(current < input.length() && input[current]!='>') current++;
-            return new Token(Token::ID,input,first,++current-first);
+            int c = 1;
+            current++;
+            while(current < input.length() and c){
+                if(input[current]=='>')
+                    c--;
+                else if(input[current]=='<')
+                    c++;
+                current++;
+            }
+            return new Token(Token::ID,input,first,current-first);
         }
         else if (lexema=="vec") return new Token(Token::VEC, input, first, current - first);
 
