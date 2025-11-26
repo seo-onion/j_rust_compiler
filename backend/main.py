@@ -227,19 +227,17 @@ async def run_program(compilation_id: str):
             )
 
         # Dar permisos de ejecución explícitos
-        os.chmod(binary_file, 0o755)
+        try:
+            os.chmod(binary_file, 0o755)
+        except Exception as e:
+            print(f"Error setting permissions: {e}")
 
-        # Ejecutar binario con configuración de entorno más permisiva
+        # Ejecutar binario directamente
         run_result = subprocess.run(
             [str(binary_file)],
             capture_output=True,
             text=True,
-            timeout=10,
-            cwd=str(temp_path),
-            env={
-                "PATH": "/usr/bin:/bin",
-                "HOME": "/tmp",
-            }
+            timeout=10
         )
 
         # Si hay segfault, agregar info adicional
