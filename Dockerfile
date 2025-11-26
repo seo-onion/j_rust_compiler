@@ -9,7 +9,12 @@ RUN apt-get update && apt-get install -y \
     make \
     graphviz \
     gcc \
+    libc6-dev \
+    binutils \
     && rm -rf /var/lib/apt/lists/*
+
+# Verificar versiones
+RUN gcc --version && ld --version
 
 WORKDIR /app
 

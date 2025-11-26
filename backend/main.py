@@ -226,13 +226,24 @@ async def run_program(compilation_id: str):
                 }
             )
 
-        # Ejecutar binario
+        # Ejecutar binario con ulimit aumentado
         run_result = subprocess.run(
-            [str(binary_file)],
+            ["sh", "-c", f"ulimit -s unlimited && {binary_file}"],
             capture_output=True,
             text=True,
             timeout=10
         )
+
+        # Si hay segfault, agregar info adicional
+        if run_result.returncode == -11:
+            stderr_extra = run_result.stderr + f"\n[SEGFAULT] Binary: {binary_file}\n"
+            stderr_extra += f"[DEBUG] File size: {os.path.getsize(binary_file)} bytes\n"
+            return {
+                "success": True,
+                "stdout": run_result.stdout,
+                "stderr": stderr_extra,
+                "returncode": run_result.returncode
+            }
 
         return {
             "success": True,
