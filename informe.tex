@@ -1,0 +1,1148 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{apacite}
+
+\geometry{left=2.5cm,right=2.5cm,top=3cm,bottom=3cm}
+
+% Configuración de listings para código
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{gray}\itshape,
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=5pt,
+    backgroundcolor=\color{white},
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    frame=single,
+    tabsize=2,
+    captionpos=b,
+    breaklines=true,
+    breakatwhitespace=false,
+    escapeinside={\%*}{*)},
+    language=C++
+}
+
+% Encabezado y pie de página
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Compilador para Rust}
+\lhead{Lenguajes de Programación}
+\rfoot{\thepage}
+
+\title{\textbf{Compilador para Rust}\\
+\large Implementación en C++ con Generación de Código x86}
+\author{Sebastian Hernandez Miñano\\
+\small Universidad Nacional de Ingeniería}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Introducción}
+
+Este documento presenta la implementación de un compilador básico para el lenguaje Rust, desarrollado en C++. El compilador implementa las fases fundamentales de compilación: análisis léxico (scanner), análisis sintáctico (parser), construcción del árbol de sintaxis abstracta (AST), verificación de tipos (type checker) y generación de código ensamblador x86-64.
+
+El proyecto incluye características avanzadas como manejo de arrays dinámicos, implementación de funciones genéricas mediante templates, y una infraestructura web completa con backend FastAPI y frontend React para facilitar la compilación y ejecución de programas Rust de manera interactiva. Adicionalmente, el sistema ha sido preparado para deployment en servicios de nube como Render y Vercel.
+
+\section{Gramática}
+
+La gramática del lenguaje implementado sigue una estructura BNF (Backus-Naur Form) adaptada para un subconjunto de Rust. A continuación se presenta la gramática formal del compilador:
+
+\subsection{Gramática Formal}
+
+\begin{lstlisting}[language=,caption={Gramática BNF del compilador}]
+Program ::= (VarDec | FunDec)*
+
+VarDec ::= 'let' ID (':' Type)? ('=' Exp)? ';'
+
+FunDec ::= 'fn' ID ('<' TypeParams '>')? '(' ParamList? ')'
+           ('->' Type)? Body
+
+TypeParams ::= ID (',' ID)*
+
+ParamList ::= Param (',' Param)*
+Param ::= ID ':' Type
+
+Body ::= '{' VarDec* Stm* '}'
+
+Stm ::= AssignStm | PrintStm | IfStm | WhileStm
+      | ReturnStm | FcallStm | PushStm | AssignPStm
+
+AssignStm ::= ID '=' Exp ';'
+AssignPStm ::= AccesExp '=' Exp ';'
+PrintStm ::= 'print!' '(' Exp ')' ';'
+IfStm ::= 'if' Exp Body ('else' Body)?
+WhileStm ::= 'while' Exp Body
+ReturnStm ::= 'return' Exp ';'
+FcallStm ::= ID '(' ExpList? ')' ';'
+PushStm ::= Exp '.push' '(' Exp ')' ';'
+
+Exp ::= BinaryExp | UnaryExp | PrimaryExp
+
+BinaryExp ::= Exp BinOp Exp
+BinOp ::= '+' | '-' | '*' | '/' | '<' | '>'
+        | '<=' | '>=' | '&&' | '||'
+
+PrimaryExp ::= NumberExp | BoolExp | StrExp | IdExp
+             | ArrExp | AccesExp | LenExp | FcallExp
+
+NumberExp ::= DIGIT+
+BoolExp ::= 'true' | 'false'
+StrExp ::= '"' CHAR* '"'
+IdExp ::= ID
+ArrExp ::= '[' ExpList? ']'
+AccesExp ::= ID '[' Exp ']' ('[' Exp ']')*
+LenExp ::= Exp '.len()'
+FcallExp ::= ID ('<' TypeArgs '>')? '(' ExpList? ')'
+
+Type ::= 'i64' | 'bool' | 'str' | 'Vec<' Type '>' | ID
+
+ExpList ::= Exp (',' Exp)*
+TypeArgs ::= Type (',' Type)*
+\end{lstlisting}
+
+\subsection{Características Sintácticas}
+
+La gramática implementada soporta:
+
+\begin{itemize}
+    \item Declaración de variables con inferencia de tipos
+    \item Funciones con parámetros genéricos (templates)
+    \item Estructuras de control: \texttt{if-else}, \texttt{while}
+    \item Operadores aritméticos, relacionales y lógicos
+    \item Arrays dinámicos con tipo \texttt{Vec<T>}
+    \item Acceso indexado multidimensional a arrays
+    \item Funciones de utilidad: \texttt{print!}, \texttt{push}, \texttt{len}
+\end{itemize}
+
+\section{Parser}
+
+El parser implementa un analizador sintáctico descendente recursivo (recursive descent parser) que construye el AST a partir del flujo de tokens generado por el scanner.
+
+\subsection{Estructura del Parser}
+
+\begin{lstlisting}[caption={Estructura básica del Parser}]
+class Parser {
+private:
+    Scanner* scanner;
+    Token* current;
+    Token* previous;
+
+    bool match(Token::Type ttype);
+    bool check(Token::Type ttype);
+    bool advance();
+    bool isAtEnd();
+
+public:
+    Parser(Scanner* scanner);
+    Program* parseProgram();
+
+    // Métodos de parseo
+    VarDec* parseVarDec();
+    FunDec* parseFunDec();
+    Body* parseBody();
+    Stm* parseStm();
+    Exp* parseExp();
+    Exp* parseE();    // Suma/resta
+    Exp* parseBE();   // Multiplicación/división
+    Exp* parseF();    // Factor (primarios)
+};
+\end{lstlisting}
+
+\subsection{Precedencia de Operadores}
+
+El parser implementa la precedencia de operadores mediante el método de análisis por descenso recursivo, donde cada nivel de precedencia corresponde a un método diferente:
+
+\begin{enumerate}
+    \item \textbf{parseExp()}: Operadores lógicos (\texttt{\&\&}, \texttt{||})
+    \item \textbf{parseCompare()}: Operadores relacionales (\texttt{<}, \texttt{>}, \texttt{<=}, \texttt{>=})
+    \item \textbf{parseE()}: Suma y resta (\texttt{+}, \texttt{-})
+    \item \textbf{parseBE()}: Multiplicación y división (\texttt{*}, \texttt{/})
+    \item \textbf{parseF()}: Expresiones primarias y llamadas a funciones
+\end{enumerate}
+
+\subsection{Manejo de Errores}
+
+El parser implementa recuperación de errores mediante excepciones:
+
+\begin{lstlisting}[caption={Manejo de errores en el Parser}]
+Token* Parser::match(Token::Type ttype) {
+    if (check(ttype)) {
+        return advance();
+    }
+    throw runtime_error("Error en parse: se esperaba " +
+                       Token::typeToString(ttype));
+}
+\end{lstlisting}
+
+\section{AST (Árbol de Sintaxis Abstracta)}
+
+El AST representa la estructura jerárquica del programa fuente. Cada nodo del árbol corresponde a una construcción sintáctica del lenguaje.
+
+\subsection{Jerarquía de Clases}
+
+\begin{lstlisting}[caption={Jerarquía de clases del AST}]
+// Clase base para expresiones
+class Exp {
+public:
+    virtual string type() = 0;
+    virtual string accept(Visitor* visitor) = 0;
+    virtual ~Exp() = 0;
+};
+
+// Clase base para sentencias
+class Stm {
+public:
+    virtual string accept(Visitor* visitor) = 0;
+    virtual ~Stm() = 0;
+};
+
+// Programa completo
+class Program {
+public:
+    list<VarDec*> vdlist;
+    list<FunDec*> fdlist;
+    string accept(Visitor* visitor);
+};
+
+// Declaración de función
+class FunDec {
+public:
+    string nombre;
+    string tipo;
+    vector<string> Ptipos;
+    vector<string> Pnombres;
+    vector<string> typeParams;  // Para templates
+    Body* cuerpo;
+    bool isGeneric() { return !typeParams.empty(); }
+};
+\end{lstlisting}
+
+\subsection{Nodos de Expresiones}
+
+El AST implementa diferentes tipos de nodos para expresiones:
+
+\begin{itemize}
+    \item \textbf{BinaryExp}: Expresiones binarias (\texttt{a + b}, \texttt{x < y})
+    \item \textbf{NumberExp}: Literales numéricos (\texttt{42}, \texttt{-10})
+    \item \textbf{BoolExp}: Literales booleanos (\texttt{true}, \texttt{false})
+    \item \textbf{StrExp}: Literales de cadena (\texttt{"hello"})
+    \item \textbf{IdExp}: Identificadores de variables
+    \item \textbf{ArrExp}: Literales de array (\texttt{[1, 2, 3]})
+    \item \textbf{AccesExp}: Acceso a elementos de array (\texttt{arr[i][j]})
+    \item \textbf{LenExp}: Longitud de array (\texttt{arr.len()})
+    \item \textbf{FcallExp}: Llamadas a funciones
+\end{itemize}
+
+\subsection{Patrón Visitor}
+
+El AST implementa el patrón Visitor para separar las operaciones de la estructura del árbol:
+
+\begin{lstlisting}[caption={Implementación del patrón Visitor}]
+class Visitor {
+public:
+    virtual string visit(BinaryExp* exp) = 0;
+    virtual string visit(NumberExp* exp) = 0;
+    virtual string visit(Program* p) = 0;
+    virtual string visit(FunDec* fd) = 0;
+    // ... más métodos visit
+};
+
+string BinaryExp::accept(Visitor* visitor) {
+    return visitor->visit(this);
+}
+\end{lstlisting}
+
+\section{Visitor: Typechecker}
+
+El Typechecker implementa un visitor que recorre el AST verificando la corrección de tipos y calculando información necesaria para la generación de código.
+
+\subsection{Funcionalidades del Typechecker}
+
+\begin{lstlisting}[caption={Clase Typechecker}]
+class Typechecker : public Visitor {
+public:
+    unordered_map<string, string> tipos;
+    unordered_map<string, int> bytes_per_funct;
+    unordered_map<string, FunDec*> funciones;
+    unordered_map<string, pair<FunDec*, vector<string>>>
+        instancias;
+
+    int generar(Program* program);
+
+    // Inferencia de tipos
+    string inferirTiposExp(Exp* e);
+    void inferirTiposStm(Stm* s);
+
+    // Manejo de templates
+    bool esGenerico(string tipo, vector<string>& typeParams);
+    string sustituirTipo(string tipo,
+                        vector<string>& typeParams,
+                        vector<string>& typeArgs);
+    string crearSignature(string nombre,
+                         vector<string>& typeArgs);
+    void visitGenericFunction(FunDec* fd,
+                             vector<string>& typeArgs);
+};
+\end{lstlisting}
+
+\subsection{Verificación de Tipos}
+
+El typechecker realiza las siguientes verificaciones:
+
+\begin{itemize}
+    \item \textbf{Compatibilidad de asignaciones}: Verifica que el tipo de la expresión coincida con el tipo de la variable
+    \item \textbf{Operadores binarios}: Asegura que los operandos tengan tipos compatibles
+    \item \textbf{Condiciones}: Verifica que las expresiones booleanas se usen en contextos de control
+    \item \textbf{Retornos de funciones}: Comprueba que el tipo de retorno coincida con la declaración
+    \item \textbf{Llamadas a funciones}: Valida número y tipo de argumentos
+\end{itemize}
+
+\begin{lstlisting}[caption={Verificación de tipos en expresiones binarias}]
+string Typechecker::visit(BinaryExp* exp) {
+    string l = exp->left->accept(this);
+    string r = exp->right->accept(this);
+
+    switch (exp->op) {
+        case PLUS_OP:
+        case MINUS_OP:
+        case MUL_OP:
+        case DIV_OP:
+            if (l != "i64" || r != "i64")
+                throw runtime_error(
+                    "Operacion aritmetica requiere i64");
+            return "i64";
+
+        case AND_op:
+        case ORR_op:
+            if (l != "bool" || r != "bool")
+                throw runtime_error(
+                    "Operacion logica requiere bool");
+            return "bool";
+
+        case LE_OP:
+        case GR_OP:
+            if (l != r)
+                throw runtime_error(
+                    "Comparacion entre tipos distintos");
+            return "bool";
+    }
+}
+\end{lstlisting}
+
+\subsection{Cálculo de Memoria}
+
+El typechecker calcula el espacio necesario en el stack para cada función:
+
+\begin{lstlisting}[caption={Cálculo de bytes por función}]
+string Typechecker::visit(FunDec* fd) {
+    int parametros = 0;
+    for (string t : fd->Ptipos) {
+        if (t == "bool" || t == "i64")
+            parametros += 8;
+        else
+            parametros += 16; // Arrays: puntero + tamaño
+    }
+
+    locales = 0;
+    fd->cuerpo->accept(this);
+    bytes_per_funct[fd->nombre] = parametros + locales;
+
+    return fd->tipo;
+}
+\end{lstlisting}
+
+\section{Visitor: GenCode}
+
+El visitor GenCodeVisitor genera código ensamblador x86-64 a partir del AST verificado.
+
+\subsection{Estructura del Generador}
+
+\begin{lstlisting}[caption={Clase GenCodeVisitor}]
+class GenCodeVisitor : public Visitor {
+private:
+    ostream& out;
+
+public:
+    Environment<int> memoria;
+    unordered_map<string, bool> memoriaGlobal;
+    Typechecker* tc;
+
+    int offset = -8;
+    int labelcont = 0;
+    bool entornoFuncion = false;
+    string nombreFuncion;
+
+    stringstream funcionesMonomorfizadas;
+    set<string> funcionesGeneradas;
+
+    int generar(Program* program);
+};
+\end{lstlisting}
+
+\subsection{Convenciones de Llamada}
+
+El generador sigue la convención de llamada System V AMD64 ABI:
+
+\begin{itemize}
+    \item \textbf{Argumentos}: Se pasan en registros \texttt{\%rdi}, \texttt{\%rsi}, \texttt{\%rdx}, \texttt{\%rcx}, \texttt{\%r8}, \texttt{\%r9}
+    \item \textbf{Retorno}: Valor de retorno en \texttt{\%rax}
+    \item \textbf{Stack frame}: Se usa \texttt{\%rbp} como frame pointer
+    \item \textbf{Alineación}: Stack alineado a 16 bytes
+\end{itemize}
+
+\begin{lstlisting}[caption={Generación de prólogo de función}]
+string GenCodeVisitor::visit(FunDec* f) {
+    out << ".globl " << f->nombre << endl;
+    out << f->nombre << ":" << endl;
+    out << "pushq %rbp" << endl;
+    out << "movq %rsp, %rbp" << endl;
+    out << "subq $" << tc->bytes_per_funct[f->nombre]
+        << ", %rsp" << endl;
+
+    // Guardar parámetros en el stack
+    vector<string> argRegs = {"%rdi", "%rsi", "%rdx",
+                              "%rcx", "%r8", "%r9"};
+    for (int i = 0; i < f->Pnombres.size(); i++) {
+        out << "movq " << argRegs[i] << ","
+            << offset << "(%rbp)" << endl;
+        memoria.add_var(f->Pnombres[i], offset);
+        offset -= 8;
+    }
+
+    f->cuerpo->accept(this);
+
+    out << ".end_" << f->nombre << ":" << endl;
+    out << "leave" << endl;
+    out << "ret" << endl;
+}
+\end{lstlisting}
+
+\subsection{Generación de Expresiones}
+
+\begin{lstlisting}[caption={Generación de código para expresiones binarias}]
+string GenCodeVisitor::visit(BinaryExp* exp) {
+    exp->left->accept(this);
+    out << "pushq %rax" << endl;
+    exp->right->accept(this);
+    out << "movq %rax, %rcx" << endl;
+    out << "popq %rax" << endl;
+
+    switch (exp->op) {
+        case PLUS_OP:
+            out << "addq %rcx, %rax" << endl;
+            break;
+        case MINUS_OP:
+            out << "subq %rcx, %rax" << endl;
+            break;
+        case MUL_OP:
+            out << "imulq %rcx, %rax" << endl;
+            break;
+        case LE_OP:
+            out << "cmpq %rcx, %rax" << endl;
+            out << "movl $0, %eax" << endl;
+            out << "setl %al" << endl;
+            out << "movzbq %al, %rax" << endl;
+            break;
+    }
+    return string{};
+}
+\end{lstlisting}
+
+\subsection{Estructuras de Control}
+
+\begin{lstlisting}[caption={Generación de código para if-else}]
+string GenCodeVisitor::visit(IfStm* stm) {
+    int label = labelcont++;
+
+    stm->condition->accept(this);
+    out << "cmpq $0, %rax" << endl;
+    out << "je else_" << label << endl;
+
+    stm->then->accept(this);
+    out << "jmp endif_" << label << endl;
+
+    out << "else_" << label << ":" << endl;
+    if (stm->els)
+        stm->els->accept(this);
+
+    out << "endif_" << label << ":" << endl;
+    return string{};
+}
+\end{lstlisting}
+
+\subsection{Optimizaciones}
+
+El generador implementa optimizaciones básicas:
+
+\begin{itemize}
+    \item \textbf{Evaluación constante}: Condiciones booleanas constantes se evalúan en tiempo de compilación
+    \item \textbf{Eliminación de código muerto}: Ramas de \texttt{if} o \texttt{while} con condiciones constantes falsas se omiten
+    \item \textbf{Etiquetas compartidas}: Uso de etiquetas duplicadas para optimizar bucles infinitos
+\end{itemize}
+
+\begin{lstlisting}[caption={Optimización de while con condición constante}]
+string GenCodeVisitor::visit(WhileStm* stm) {
+    if (stm->condition->type() == "BoolExp") {
+        if (((BoolExp*)stm->condition)->value) {
+            // Bucle infinito optimizado
+            int label = labelcont++;
+            out << label << ":" << endl;
+            stm->b->accept(this);
+            out << label << ":" << endl;  // Etiqueta duplicada
+            return string{};
+        }
+    }
+    // Generación normal con condición dinámica
+    // ...
+}
+\end{lstlisting}
+
+\section{Arrays Dinámicas}
+
+La implementación de arrays dinámicos utiliza memoria heap con gestión manual mediante \texttt{malloc}.
+
+\subsection{Representación en Memoria}
+
+Los arrays se representan mediante dos valores de 8 bytes:
+
+\begin{enumerate}
+    \item \textbf{Puntero}: Dirección de memoria del primer elemento (\texttt{\%rax})
+    \item \textbf{Tamaño}: Número de elementos en el array (\texttt{\%rcx})
+\end{enumerate}
+
+\subsection{Creación de Arrays}
+
+\begin{lstlisting}[caption={Generación de código para literales de array}]
+string GenCodeVisitor::visit(arrExp* arr) {
+    int type_size = 16;  // Por defecto arrays anidados
+    if (arr->tipo == "bool" || arr->tipo == "i64")
+        type_size = 8;
+
+    // Reservar memoria
+    out << "movq $" << arr->elements.size() * type_size
+        << ", %rdi" << endl;
+    out << "call malloc@PLT" << endl;
+    out << "movq %rax, %rbx" << endl;
+
+    // Inicializar elementos
+    int offset = 0;
+    for (Exp* exp : arr->elements) {
+        exp->accept(this);
+        out << "movq %rax, " << offset << "(%rbx)" << endl;
+        if (type_size == 16) {
+            out << "movq %rcx, " << (offset + 8)
+                << "(%rbx)" << endl;
+        }
+        offset += type_size;
+    }
+
+    // Retornar puntero y tamaño
+    out << "movq $" << arr->elements.size()
+        << ", %rcx" << endl;
+    out << "movq %rbx, %rax" << endl;
+}
+\end{lstlisting}
+
+\subsection{Acceso a Elementos}
+
+El acceso a arrays soporta indexación multidimensional:
+
+\begin{lstlisting}[caption={Acceso a elementos de array}]
+string GenCodeVisitor::visit(accesExp* stm) {
+    int type_size = 16;
+    string tipo = stm->accept(tc);
+    if (tipo == "bool" || tipo == "i64")
+        type_size = 8;
+
+    int base = memoria.lookup(stm->variable);
+    out << "movq " << base << "(%rbp), %r8" << endl;
+
+    for (Exp* e : stm->indexes) {
+        e->accept(this);  // Índice en %rax
+        out << "movq $" << type_size << ", %rbx" << endl;
+        out << "imulq %rbx, %rax" << endl;  // offset = i * size
+        out << "addq %r8, %rax" << endl;     // dirección = base + offset
+        out << "movq (%rax), %r8" << endl;   // cargar elemento
+    }
+
+    out << "movq %r8, %rax" << endl;
+    return string{};
+}
+\end{lstlisting}
+
+\subsection{Operación Push}
+
+La operación \texttt{push} redimensiona dinámicamente el array:
+
+\begin{lstlisting}[caption={Implementación de push}]
+string GenCodeVisitor::visit(pushStm* stm) {
+    int size = 16;
+    string t = stm->p->accept(tc);
+    if (t == "bool" || t == "i64")
+        size = 8;
+
+    // Cargar array actual
+    stm->vector->accept(this);
+    out << "pushq %rax" << endl;
+
+    // Calcular nuevo tamaño
+    out << "movq %rcx, %rdi" << endl;
+    out << "addq $1, %rdi" << endl;
+    out << "movq %rdi, 8(%rbx)" << endl;  // Actualizar tamaño
+
+    // Reservar nueva memoria
+    out << "movq $" << size << ", %rcx" << endl;
+    out << "imulq %rcx, %rdi" << endl;
+    out << "call malloc@PLT" << endl;
+
+    // Copiar elementos antiguos
+    out << "popq %rax" << endl;
+    // ... bucle de copia ...
+
+    // Agregar nuevo elemento
+    stm->p->accept(this);
+    out << "movq %rax, (%rbx)" << endl;
+}
+\end{lstlisting}
+
+\subsection{Gestión de Memoria}
+
+La gestión de memoria se realiza de forma explícita:
+
+\begin{itemize}
+    \item \textbf{Asignación}: Mediante \texttt{malloc@PLT}
+    \item \textbf{Sin liberación automática}: El sistema operativo libera la memoria al terminar el programa
+    \item \textbf{Reasignación}: En operaciones como \texttt{push}, se reserva nuevo espacio y se copia el contenido
+\end{itemize}
+
+\section{Templates}
+
+La implementación de templates (funciones genéricas) utiliza el enfoque de monomorfización en tiempo de compilación.
+
+\subsection{Declaración de Funciones Genéricas}
+
+\begin{lstlisting}[caption={Ejemplo de función genérica}]
+fn max<T>(a: T, b: T) -> T {
+    if a > b {
+        return a;
+    } else {
+        return b;
+    }
+}
+\end{lstlisting}
+
+\subsection{Monomorfización}
+
+El proceso de monomorfización genera una versión especializada de la función para cada conjunto único de tipos concretos:
+
+\begin{lstlisting}[caption={Proceso de monomorfización en Typechecker}]
+void Typechecker::visitGenericFunction(FunDec* fd,
+                                      vector<string>& typeArgs) {
+    string signature = crearSignature(fd->nombre, typeArgs);
+
+    // Sustituir tipos genéricos por concretos
+    for (int i = 0; i < fd->Pnombres.size(); i++) {
+        string tipoConcreto = sustituirTipo(fd->Ptipos[i],
+                                           fd->typeParams,
+                                           typeArgs);
+        tipos[fd->Pnombres[i]] = tipoConcreto;
+    }
+
+    // Verificar tipos con los parámetros concretos
+    fd->cuerpo->accept(this);
+
+    // Registrar instancia para generación de código
+    bytes_per_funct[signature] = parametros + locales;
+}
+\end{lstlisting}
+
+\subsection{Inferencia de Tipos}
+
+El compilador infiere los tipos de los templates a partir de los argumentos de la llamada:
+
+\begin{lstlisting}[caption={Inferencia de tipos en llamadas genéricas}]
+string Typechecker::visit(FcallExp* fcall) {
+    FunDec* f = buscarFuncion(fcall->nombre);
+
+    if (f->isGeneric()) {
+        // Inferir tipos de argumentos
+        vector<string> typeArgs;
+        for (auto arg : fcall->argumentos) {
+            string tipoArg = inferirTiposExp(arg);
+            typeArgs.push_back(tipoArg);
+        }
+
+        // Crear signature única
+        string signature = crearSignature(fcall->nombre,
+                                         typeArgs);
+
+        // Registrar instancia si no existe
+        if (instancias.count(signature) == 0) {
+            instancias[signature] = {f, typeArgs};
+            visitGenericFunction(f, typeArgs);
+        }
+
+        return sustituirTipo(f->tipo, f->typeParams, typeArgs);
+    }
+}
+\end{lstlisting}
+
+\subsection{Generación de Código Monomorfizado}
+
+Cada instancia genera una función separada con un nombre único:
+
+\begin{lstlisting}[caption={Generación de funciones monomorfizadas}]
+void GenCodeVisitor::generarFuncionMonomorfizada(
+    FunDec* fd,
+    vector<string>& typeArgs,
+    string signature) {
+
+    // Crear nombre único: max<i64> -> max_i64
+    string nombreMono = crearNombreMonomorfizado(
+        fd->nombre,
+        typeArgs
+    );
+
+    out << ".globl " << nombreMono << endl;
+    out << nombreMono << ":" << endl;
+
+    // Generar código con tipos sustituidos
+    // ...
+}
+
+string GenCodeVisitor::crearNombreMonomorfizado(
+    string nombre,
+    vector<string>& typeArgs) {
+
+    string result = nombre;
+    for (auto& tipo : typeArgs) {
+        result += "_" + tipo;
+    }
+    return result;  // Ej: "max_i64"
+}
+\end{lstlisting}
+
+\subsection{Ventajas de la Monomorfización}
+
+\begin{itemize}
+    \item \textbf{Rendimiento}: Código especializado sin overhead de tipos dinámicos
+    \item \textbf{Verificación en tiempo de compilación}: Errores de tipos detectados antes de ejecutar
+    \item \textbf{Sin penalización en runtime}: No hay necesidad de boxing o dispatch dinámico
+    \item \textbf{Optimización}: El compilador puede optimizar cada versión especializada
+\end{itemize}
+
+\subsection{Limitaciones}
+
+\begin{itemize}
+    \item \textbf{Tamaño del binario}: Cada instancia genera código adicional
+    \item \textbf{Tiempo de compilación}: Más funciones que verificar y generar
+    \item \textbf{Sin polimorfismo runtime}: Los tipos deben conocerse en tiempo de compilación
+\end{itemize}
+
+\section{Deploy y Producción}
+
+La arquitectura del sistema se divide en tres componentes principales desplegados en servicios cloud gratuitos.
+
+\subsection{Arquitectura General}
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
+┌─────────────┐     HTTP      ┌──────────────┐
+│   Usuario   │ ←────────────→ │   Vercel     │
+│  (Browser)  │                │  (Frontend)  │
+└─────────────┘                └──────────────┘
+                                      │
+                                      │ HTTPS/REST
+                                      ▼
+                                ┌──────────────┐
+                                │   Render     │
+                                │  (Backend)   │
+                                │   FastAPI    │
+                                └──────────────┘
+                                      │
+                                      │ subprocess
+                                      ▼
+                                ┌──────────────┐
+                                │  Compilador  │
+                                │    C++       │
+                                └──────────────┘
+\end{verbatim}
+\caption{Arquitectura de deployment}
+\end{figure}
+
+\subsection{Backend: FastAPI en Render}
+
+\subsubsection{Tecnologías Utilizadas}
+
+\begin{itemize}
+    \item \textbf{Framework}: FastAPI 0.104.1
+    \item \textbf{Servidor}: Uvicorn con workers asíncronos
+    \item \textbf{Containerización}: Docker con imagen Ubuntu 22.04
+    \item \textbf{Plataforma}: Render.com (Free Tier)
+\end{itemize}
+
+\subsubsection{Dockerfile}
+
+\begin{lstlisting}[language=bash,caption={Dockerfile para backend}]
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    g++ \
+    make \
+    graphviz \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY backend/requirements.txt ./backend/
+RUN pip3 install --no-cache-dir -r backend/requirements.txt
+
+COPY *.cpp *.h ./
+COPY Makefile ./
+
+RUN make
+
+COPY backend/ ./backend/
+
+WORKDIR /app/backend
+
+EXPOSE 8000
+
+CMD ["python3", "-m", "uvicorn", "main:app",
+     "--host", "0.0.0.0", "--port", "8000"]
+\end{lstlisting}
+
+\subsubsection{Endpoints de la API}
+
+\begin{enumerate}
+    \item \textbf{POST /compile}
+    \begin{itemize}
+        \item Recibe código Rust como JSON
+        \item Ejecuta el compilador C++
+        \item Genera: tokens, AST (DOT y PNG), ensamblador
+        \item Retorna ID de compilación único
+    \end{itemize}
+
+    \item \textbf{GET /tokens/\{id\}}
+    \begin{itemize}
+        \item Retorna archivo de tokens generado por el scanner
+    \end{itemize}
+
+    \item \textbf{GET /ast/\{id\}}
+    \begin{itemize}
+        \item Retorna imagen PNG del AST generada con Graphviz
+    \end{itemize}
+
+    \item \textbf{GET /asm/\{id\}}
+    \begin{itemize}
+        \item Retorna código ensamblador x86-64
+    \end{itemize}
+
+    \item \textbf{GET /run/\{id\}}
+    \begin{itemize}
+        \item Compila el ensamblador con GCC
+        \item Ejecuta el binario resultante
+        \item Retorna stdout y stderr
+    \end{itemize}
+
+    \item \textbf{GET /health}
+    \begin{itemize}
+        \item Health check para monitoreo
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Manejo de Etiquetas Duplicadas}
+
+El backend incluye preprocesamiento del código ensamblador para manejar la optimización de etiquetas duplicadas:
+
+\begin{lstlisting}[language=Python,caption={Preprocesamiento de etiquetas}]
+# Leer archivo .s
+with open(asm_file, 'r') as f:
+    lines = f.readlines()
+
+seen_labels = set()
+processed_lines = []
+
+for line in lines:
+    stripped = line.strip()
+    # Detectar etiquetas while_X: duplicadas
+    if stripped.endswith(':') and stripped.startswith('while_'):
+        if stripped in seen_labels:
+            # Comentar etiqueta duplicada
+            processed_lines.append('# ' + line)
+            continue
+        seen_labels.add(stripped)
+    processed_lines.append(line)
+
+# Guardar archivo procesado
+with open(asm_file, 'w') as f:
+    f.writelines(processed_lines)
+\end{lstlisting}
+
+\subsection{Frontend: React en Vercel}
+
+\subsubsection{Tecnologías Utilizadas}
+
+\begin{itemize}
+    \item \textbf{Framework}: React 18.2.0
+    \item \textbf{Editor}: Monaco Editor (mismo de VS Code)
+    \item \textbf{HTTP Client}: Axios
+    \item \textbf{Build Tool}: Create React App
+    \item \textbf{Plataforma}: Vercel (Free Tier)
+\end{itemize}
+
+\subsubsection{Componentes Principales}
+
+\begin{lstlisting}[language=JavaScript,caption={Componente principal App.js}]
+function App() {
+  const [code, setCode] = useState(DEFAULT_CODE);
+  const [compilationId, setCompilationId] = useState(null);
+  const [tokens, setTokens] = useState('');
+  const [assembly, setAssembly] = useState('');
+  const [astImage, setAstImage] = useState(null);
+  const [output, setOutput] = useState('');
+
+  const handleCompile = async () => {
+    const response = await axios.post(
+      `${API_URL}/compile`,
+      { code }
+    );
+
+    const id = response.data.files.id;
+    setCompilationId(id);
+
+    // Cargar resultados
+    const tokensRes = await axios.get(`${API_URL}/tokens/${id}`);
+    setTokens(tokensRes.data);
+
+    const asmRes = await axios.get(`${API_URL}/asm/${id}`);
+    setAssembly(asmRes.data);
+
+    setAstImage(`${API_URL}/ast/${id}`);
+  };
+
+  const handleRun = async () => {
+    const response = await axios.get(
+      `${API_URL}/run/${compilationId}`
+    );
+    setOutput(response.data.stdout);
+  };
+
+  // Render UI con Monaco Editor y tabs
+}
+\end{lstlisting}
+
+\subsubsection{Configuración de Vercel}
+
+\begin{lstlisting}[language=JSON,caption={vercel.json}]
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+\end{lstlisting}
+
+Variables de entorno en Vercel:
+\begin{verbatim}
+REACT_APP_API_URL=https://j-rust-compiler.onrender.com
+\end{verbatim}
+
+\subsection{Pipeline de Deployment}
+
+\subsubsection{Flujo de CI/CD}
+
+\begin{enumerate}
+    \item \textbf{Desarrollo local}
+    \begin{itemize}
+        \item Modificación de código C++, Python o React
+        \item Testing local con \texttt{make} y scripts de prueba
+    \end{itemize}
+
+    \item \textbf{Git push}
+    \begin{itemize}
+        \item Commit de cambios al repositorio
+        \item Push a rama \texttt{master} en GitHub
+    \end{itemize}
+
+    \item \textbf{Deployment automático}
+    \begin{itemize}
+        \item Render detecta cambios en \texttt{master}
+        \item Construye imagen Docker
+        \item Ejecuta \texttt{make} para compilar C++
+        \item Inicia servidor FastAPI
+        \item Vercel detecta cambios en \texttt{frontend/}
+        \item Ejecuta \texttt{npm run build}
+        \item Despliega sitio estático
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Monitoreo y Logs}
+
+\begin{itemize}
+    \item \textbf{Render}: Dashboard con logs en tiempo real, métricas de CPU/memoria
+    \item \textbf{Vercel}: Analytics de builds, error tracking, performance monitoring
+    \item \textbf{Health checks}: Endpoint \texttt{/health} monitoreado cada 5 minutos
+\end{itemize}
+
+\subsection{Consideraciones de Producción}
+
+\subsubsection{Limitaciones del Free Tier}
+
+\begin{itemize}
+    \item \textbf{Render}
+    \begin{itemize}
+        \item El servicio se "duerme" después de 15 minutos de inactividad
+        \item Primera petición tarda ~30 segundos en responder
+        \item 750 horas/mes de compute time
+    \end{itemize}
+
+    \item \textbf{Vercel}
+    \begin{itemize}
+        \item 100GB bandwidth/mes
+        \item Builds ilimitados
+        \item Funciones serverless con timeout de 10 segundos
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Optimizaciones Implementadas}
+
+\begin{enumerate}
+    \item \textbf{Caching de builds}
+    \begin{itemize}
+        \item Docker layer caching en Render
+        \item Build cache de npm en Vercel
+    \end{itemize}
+
+    \item \textbf{Gestión de archivos temporales}
+    \begin{itemize}
+        \item Directorio temporal por compilación
+        \item ID único usando \texttt{os.urandom(8).hex()}
+        \item Endpoint \texttt{/cleanup} para liberar espacio
+    \end{itemize}
+
+    \item \textbf{Timeouts configurados}
+    \begin{itemize}
+        \item Compilación: 30 segundos
+        \item Ejecución de ensamblador: 15 segundos
+        \item Ejecución de binario: 10 segundos
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Seguridad}
+
+\begin{itemize}
+    \item \textbf{CORS}: Configurado para aceptar cualquier origen en desarrollo
+    \item \textbf{Validación de entrada}: Pydantic valida estructura de requests
+    \item \textbf{Timeouts}: Previenen ejecución infinita de código malicioso
+    \item \textbf{Sandboxing}: Procesos ejecutados en contenedor Docker aislado
+    \item \textbf{HTTPS}: Comunicación encriptada mediante certificados de Render y Vercel
+\end{itemize}
+
+\section{Conclusiones}
+
+El proyecto ha logrado implementar exitosamente un compilador funcional para un subconjunto del lenguaje Rust, demostrando la aplicación práctica de los conceptos teóricos de compiladores estudiados en el curso.
+
+\subsection{Logros Principales}
+
+\begin{itemize}
+    \item Implementación completa de las fases de compilación: scanner, parser, AST, type checking y generación de código
+    \item Soporte para características avanzadas como arrays dinámicos con gestión de memoria heap
+    \item Sistema de templates mediante monomorfización en tiempo de compilación
+    \item Generación de código ensamblador x86-64 optimizado
+    \item Infraestructura web completa con visualización interactiva del proceso de compilación
+    \item Deployment en producción con arquitectura escalable y moderna
+\end{itemize}
+
+\subsection{Trabajo Futuro}
+
+Posibles extensiones del proyecto incluyen:
+
+\begin{itemize}
+    \item Implementación de structs y enums
+    \item Sistema de ownership y borrowing de Rust
+    \item Optimizaciones adicionales en el generador de código
+    \item Manejo automático de memoria (garbage collection o RAII)
+    \item Soporte para concurrencia y paralelismo
+    \item Mejoras en mensajes de error con información de línea y columna
+\end{itemize}
+
+\newpage
+
+\bibliographystyle{apacite}
+\begin{thebibliography}{99}
+
+\bibitem{aho2006}
+Aho, A. V., Lam, M. S., Sethi, R., \& Ullman, J. D. (2006).
+\textit{Compilers: Principles, techniques, and tools} (2nd ed.).
+Pearson Education.
+
+\bibitem{appel2004}
+Appel, A. W., \& Palsberg, J. (2004).
+\textit{Modern compiler implementation in Java} (2nd ed.).
+Cambridge University Press.
+
+\bibitem{fastapi2023}
+FastAPI. (2023).
+\textit{FastAPI framework, high performance, easy to learn, fast to code, ready for production}.
+Recuperado de https://fastapi.tiangolo.com/
+
+\bibitem{react2023}
+React. (2023).
+\textit{A JavaScript library for building user interfaces}.
+Recuperado de https://react.dev/
+
+\bibitem{rust2023}
+Rust Foundation. (2023).
+\textit{The Rust programming language}.
+Recuperado de https://www.rust-lang.org/
+
+\bibitem{systemv2023}
+System V Application Binary Interface. (2023).
+\textit{AMD64 architecture processor supplement}.
+Recuperado de https://refspecs.linuxbase.org/
+
+\bibitem{graphviz2023}
+Graphviz. (2023).
+\textit{Graph visualization software}.
+Recuperado de https://graphviz.org/
+
+\bibitem{render2023}
+Render. (2023).
+\textit{Cloud application hosting for developers}.
+Recuperado de https://render.com/
+
+\bibitem{vercel2023}
+Vercel. (2023).
+\textit{Develop. Preview. Ship. For the best frontend teams}.
+Recuperado de https://vercel.com/
+
+\end{thebibliography}
+
+\end{document}

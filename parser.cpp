@@ -136,15 +136,26 @@ FunDec *Parser::parseFunDec()
     }
 
     match(Token::LPAREN);
-    match(Token::MUT);
-    if(check(Token::ID)) {
-        while(match(Token::ID)) {
-            match(Token::MUT);
+    if(check(Token::ID) || check(Token::MUT)) {
+        if(match(Token::MUT)) {
+            match(Token::ID);
+        } else {
+            match(Token::ID);
+        }
+        fd->Pnombres.push_back(previous->text);
+        match(Token::DDOTS);
+        match(Token::ID);
+        fd->Ptipos.push_back(previous->text);
+        while(match(Token::COMA)) {
+            if(match(Token::MUT)) {
+                match(Token::ID);
+            } else {
+                match(Token::ID);
+            }
             fd->Pnombres.push_back(previous->text);
             match(Token::DDOTS);
             match(Token::ID);
             fd->Ptipos.push_back(previous->text);
-            match(Token::COMA);
         }
     }
     match(Token::RPAREN);

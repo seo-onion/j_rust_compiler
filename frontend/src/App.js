@@ -22,6 +22,10 @@ function App() {
   const [astImage, setAstImage] = useState(null);
   const [output, setOutput] = useState('');
   const [activeTab, setActiveTab] = useState('tokens');
+  const [debugState, setDebugState] = useState(null);
+  const [debugInstructions, setDebugInstructions] = useState([]);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isDebugging, setIsDebugging] = useState(false);
 
   const handleCompile = async () => {
     setLoading(true);
@@ -96,6 +100,70 @@ function App() {
     }
   };
 
+  const handleStartDebug = async () => {
+    if (!compilationId) {
+      setError('Primero debes compilar el código');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post(`${API_URL}/debug/start/${compilationId}`);
+
+      setDebugInstructions(response.data.instructions);
+      setDebugState(response.data.initial_state);
+      setCurrentStep(0);
+      setIsDebugging(true);
+      setActiveTab('debugger');
+    } catch (err) {
+      setError(`Error al iniciar debug: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDebugStep = async (step) => {
+    if (!compilationId || !isDebugging) return;
+
+    try {
+      const response = await axios.post(`${API_URL}/debug/step`, {
+        compilation_id: compilationId,
+        step: step
+      });
+
+      setDebugState(response.data);
+      setCurrentStep(step);
+    } catch (err) {
+      setError(`Error en debug step: ${err.message}`);
+    }
+  };
+
+  const handleNextStep = () => {
+    if (currentStep < debugInstructions.length - 1) {
+      handleDebugStep(currentStep + 1);
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (currentStep > 0) {
+      handleDebugStep(currentStep - 1);
+    }
+  };
+
+  const handleResetDebug = () => {
+    setCurrentStep(0);
+    handleDebugStep(0);
+  };
+
+  const handleStopDebug = () => {
+    setIsDebugging(false);
+    setDebugState(null);
+    setDebugInstructions([]);
+    setCurrentStep(0);
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -108,6 +176,9 @@ function App() {
           </button>
           <button onClick={handleRun} disabled={loading || !compilationId} className="btn-run">
             Ejecutar
+          </button>
+          <button onClick={handleStartDebug} disabled={loading || !compilationId} className="btn-debug">
+            Depurar
           </button>
         </div>
       </header>
@@ -157,6 +228,12 @@ function App() {
             >
               Salida
             </button>
+            <button
+              className={activeTab === 'debugger' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('debugger')}
+            >
+              Depurador
+            </button>
           </div>
 
           <div className="output-content">
@@ -187,6 +264,86 @@ function App() {
 
             {activeTab === 'output' && (
               <pre className="output-text">{output || 'Ejecuta el programa para ver la salida'}</pre>
+            )}
+
+            {activeTab === 'debugger' && (
+              <div className="debugger-container">
+                {!isDebugging ? (
+                  <p className="text-white">Haz clic en "Depurar" para iniciar el modo debug</p>
+                ) : (
+                  <div className="debug-view">
+                    <div className="debug-controls">
+                      <button onClick={handlePrevStep} disabled={currentStep === 0} className="debug-btn">
+                        ← Anterior
+                      </button>
+                      <button onClick={handleResetDebug} className="debug-btn">
+                        ↻ Reiniciar
+                      </button>
+                      <button onClick={handleNextStep} disabled={currentStep >= debugInstructions.length - 1} className="debug-btn">
+                        Siguiente →
+                      </button>
+                      <button onClick={handleStopDebug} className="debug-btn-stop">
+                        ■ Detener
+                      </button>
+                      <span className="debug-step-info text-white">
+                        Paso: {currentStep + 1} / {debugInstructions.length}
+                      </span>
+                    </div>
+
+                    <div className="debug-panels">
+                      <div className="debug-panel">
+                        <h4 className="text-white">Registros</h4>
+                        <div className="registers-grid">
+                          {debugState && Object.entries(debugState.registers).map(([reg, value]) => (
+                            <div key={reg} className="register-item">
+                              <span className="register-name text-white">{reg.toUpperCase()}:</span>
+                              <span className="register-value text-white">{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="debug-panel">
+                        <h4 className="text-white">Pila de Ejecución</h4>
+                        <div className="stack-view">
+                          {debugState && debugState.stack.length > 0 ? (
+                            debugState.stack.slice().reverse().map((value, idx) => (
+                              <div key={idx} className="stack-item">
+                                <span className="stack-address text-white">[{debugState.stack.length - idx - 1}]</span>
+                                <span className="stack-value text-white">{value}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-white">Pila vacía</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="debug-panel debug-instructions">
+                        <h4 className="text-white">Instrucciones</h4>
+                        <div className="instructions-list">
+                          {debugInstructions.map((inst, idx) => (
+                            <div
+                              key={idx}
+                              className={`instruction-line ${idx === currentStep ? 'current' : ''}`}
+                            >
+                              <span className="instruction-number text-white">{idx + 1}</span>
+                              <span className="instruction-text text-white">{inst}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {debugState && (
+                      <div className="current-instruction-display">
+                        <strong className="text-white">Instrucción actual: </strong>
+                        <code className="text-white">{debugState.current_instruction}</code>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

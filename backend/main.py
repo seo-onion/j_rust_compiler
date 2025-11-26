@@ -276,6 +276,230 @@ async def health_check():
     """Verifica que el servidor está funcionando"""
     return {"status": "ok", "compiler": os.path.exists(COMPILER_PATH)}
 
+class DebugState(BaseModel):
+    registers: dict
+    stack: list
+    instruction_pointer: int
+    current_instruction: str
+    memory: dict
+
+class StepDebugRequest(BaseModel):
+    compilation_id: str
+    step: int
+
+@app.post("/debug/start/{compilation_id}")
+async def start_debug(compilation_id: str):
+    """
+    Inicia el modo debug para una compilación.
+    Retorna el estado inicial y las instrucciones del código ensamblador.
+    """
+    asm_file = TEMP_DIR / compilation_id / "input.s"
+
+    if not asm_file.exists():
+        raise HTTPException(status_code=404, detail="Archivo de ensamblador no encontrado")
+
+    try:
+        with open(asm_file, 'r') as f:
+            asm_content = f.read()
+
+        instructions = parse_asm_instructions(asm_content)
+
+        initial_state = {
+            "registers": {
+                "rax": 0, "rbx": 0, "rcx": 0, "rdx": 0,
+                "rsi": 0, "rdi": 0, "rbp": 0, "rsp": 0,
+                "r8": 0, "r9": 0, "r10": 0, "r11": 0,
+                "r12": 0, "r13": 0, "r14": 0, "r15": 0,
+                "rip": 0
+            },
+            "stack": [],
+            "instruction_pointer": 0,
+            "current_instruction": instructions[0] if instructions else "",
+            "memory": {}
+        }
+
+        return {
+            "instructions": instructions,
+            "initial_state": initial_state,
+            "total_instructions": len(instructions)
+        }
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Error al iniciar debug: {str(e)}"
+            }
+        )
+
+@app.post("/debug/step")
+async def debug_step(request: StepDebugRequest):
+    """
+    Ejecuta un paso en el depurador.
+    Retorna el nuevo estado después de ejecutar la instrucción.
+    """
+    asm_file = TEMP_DIR / request.compilation_id / "input.s"
+
+    if not asm_file.exists():
+        raise HTTPException(status_code=404, detail="Archivo de ensamblador no encontrado")
+
+    try:
+        with open(asm_file, 'r') as f:
+            asm_content = f.read()
+
+        instructions = parse_asm_instructions(asm_content)
+
+        if request.step >= len(instructions):
+            raise HTTPException(status_code=400, detail="Paso fuera de rango")
+
+        state = simulate_execution(instructions, request.step)
+
+        return state
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Error en debug step: {str(e)}"
+            }
+        )
+
+def parse_asm_instructions(asm_content: str):
+    """
+    Parsea el código ensamblador y retorna una lista de instrucciones ejecutables.
+    """
+    lines = asm_content.split('\n')
+    instructions = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if not stripped or stripped.startswith('#') or stripped.startswith('.'):
+            continue
+
+        if ':' in stripped and not any(op in stripped for op in ['mov', 'add', 'sub', 'push', 'pop', 'call', 'ret', 'jmp', 'je', 'jne', 'cmp', 'imul', 'lea']):
+            continue
+
+        instructions.append(stripped)
+
+    return instructions
+
+def simulate_execution(instructions: list, step: int):
+    """
+    Simula la ejecución hasta el paso especificado.
+    Retorna el estado de registros, pila y memoria.
+    """
+    registers = {
+        "rax": 0, "rbx": 0, "rcx": 0, "rdx": 0,
+        "rsi": 0, "rdi": 0, "rbp": 0, "rsp": 4096,
+        "r8": 0, "r9": 0, "r10": 0, "r11": 0,
+        "r12": 0, "r13": 0, "r14": 0, "r15": 0,
+        "rip": 0
+    }
+
+    stack = []
+    memory = {}
+
+    for i in range(min(step + 1, len(instructions))):
+        instruction = instructions[i].strip()
+
+        if not instruction or instruction.startswith('#'):
+            continue
+
+        parts = instruction.replace(',', ' ').split()
+        if not parts:
+            continue
+
+        opcode = parts[0].lower()
+
+        try:
+            if opcode == 'movq' and len(parts) >= 3:
+                src = parts[1]
+                dst = parts[2]
+
+                if src.startswith('$'):
+                    value = int(src[1:])
+                elif src.startswith('%'):
+                    reg_name = src[1:]
+                    value = registers.get(reg_name, 0)
+                else:
+                    value = 0
+
+                if dst.startswith('%'):
+                    reg_name = dst[1:]
+                    if reg_name in registers:
+                        registers[reg_name] = value
+
+            elif opcode == 'pushq' and len(parts) >= 2:
+                src = parts[1]
+                if src.startswith('%'):
+                    reg_name = src[1:]
+                    value = registers.get(reg_name, 0)
+                    stack.append(value)
+                    registers['rsp'] -= 8
+
+            elif opcode == 'popq' and len(parts) >= 2:
+                dst = parts[1]
+                if stack and dst.startswith('%'):
+                    reg_name = dst[1:]
+                    value = stack.pop()
+                    if reg_name in registers:
+                        registers[reg_name] = value
+                    registers['rsp'] += 8
+
+            elif opcode in ['addq', 'subq', 'imulq'] and len(parts) >= 3:
+                src = parts[1]
+                dst = parts[2]
+
+                src_val = 0
+                if src.startswith('$'):
+                    src_val = int(src[1:])
+                elif src.startswith('%'):
+                    src_val = registers.get(src[1:], 0)
+
+                if dst.startswith('%'):
+                    reg_name = dst[1:]
+                    if reg_name in registers:
+                        if opcode == 'addq':
+                            registers[reg_name] += src_val
+                        elif opcode == 'subq':
+                            registers[reg_name] -= src_val
+                        elif opcode == 'imulq':
+                            registers[reg_name] *= src_val
+
+            elif opcode == 'cmpq' and len(parts) >= 3:
+                pass
+
+            elif opcode in ['je', 'jne', 'jmp', 'jl', 'jle', 'jg', 'jge']:
+                pass
+
+            elif opcode == 'call':
+                pass
+
+            elif opcode == 'ret':
+                pass
+
+            elif opcode == 'leave':
+                if stack:
+                    registers['rsp'] = registers['rbp']
+                    if stack:
+                        registers['rbp'] = stack.pop()
+
+        except Exception as e:
+            pass
+
+    current_instruction = instructions[step] if step < len(instructions) else ""
+
+    return {
+        "registers": registers,
+        "stack": stack,
+        "instruction_pointer": step,
+        "current_instruction": current_instruction,
+        "memory": memory
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
