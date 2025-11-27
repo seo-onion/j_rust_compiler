@@ -4,7 +4,8 @@ import axios from 'axios';
 import './App.css';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-const DEFAULT_CODE = `fn main() {
+const DEFAULT_CODE = `
+fn main() {
     let (a,i,s,j);
     s="pepito";
     a=[["aaa","bbb","ccc"],["gloria","andre",s]];
@@ -27,9 +28,9 @@ const DEFAULT_CODE = `fn main() {
         print!("{}",a[0][i]);
         i=i+1;
     }
-}
 
-}`;
+}
+`;
 
 function App() {
   const logo = "https://res.cloudinary.com/devuyzizr/image/upload/v1764066333/ChatGPT_Image_25_nov_2025_04_17_03_vucqd3.png"
